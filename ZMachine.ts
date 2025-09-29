@@ -271,9 +271,94 @@ class ZMachine {
             console.log(`Executed opcode ${opcodeNumber} with operands ${operands}`);
         });
     });
+
+    // dispatch decoded opcode to handler
+    const handlers = {
+      '2OP:1': () => { /* je a b ?(label) */ },
+      '2OP:2': () => { /* jl a b ?(label) */ },
+      '2OP:3': () => { /* jg a b ?(label) */ },
+      '2OP:4': () => { /* dec_chk (variable) value ?(label) */ },
+      '2OP:5': () => { /* inc_chk (variable) value ?(label) */ },
+      '2OP:6': () => { /* jin obj1 obj2 ?(label) */ },
+      '2OP:7': () => { /* test bitmap flags ?(label) */ },
+      '2OP:8': () => { /* or a b -> (result) */ },
+      '2OP:9': () => { /* and a b -> (result) */ },
+      '2OP:10': () => { /* test_attr object attribute ?(label) */ },
+      '2OP:11': () => { /* set_attr object attribute */ },
+      '2OP:12': () => { /* clear_attr object attribute */ },
+      '2OP:13': () => { /* store (variable) value */ },
+      '2OP:14': () => { /* insert_obj object destination */ },
+      '2OP:15': () => { /* loadw array word-index -> (result) */ },
+      '2OP:16': () => { /* loadb array byte-index -> (result) */ },
+      '2OP:17': () => { /* get_prop object property -> (result) */ },
+      '2OP:18': () => { /* get_prop_addr object property -> (result) */ },
+      '2OP:19': () => { /* get_next_prop object property -> (result) */ },
+      '2OP:20': () => { /* add a b -> (result) */ },
+      '2OP:21': () => { /* sub a b -> (result) */ },
+      '2OP:22': () => { /* mul a b -> (result) */ },
+      '2OP:23': () => { /* div a b -> (result) */ },
+      '2OP:24': () => { /* mod a b -> (result) */ },
+      '2OP:25': () => { /* call_2s routine arg1 -> (result) */ },
+      '2OP:26': () => { /* call_2n routine arg1 */ },
+      '2OP:27': () => { /* set_colour foreground background */ },
+      '2OP:28': () => { /* throw value stack-frame */ },
+
+      '1OP:0': () => { /* jz value ?(label) */ },
+      '1OP:1': () => { /* get_sibling object -> (result) */ },
+      '1OP:2': () => { /* get_child object -> (result) */ },
+      '1OP:3': () => { /* get_parent object -> (result) */ },
+      '1OP:4': () => { /* get_prop_len object property -> (result) */ },
+      '1OP:5': () => { /* inc (variable) */ },
+      '1OP:6': () => { /* dec (variable) */ },
+      '1OP:7': () => { /* print_addr string-address */ },
+      '1OP:8': () => { /* call_1s routine -> (result) */ },
+      '1OP:9': () => { /* call_1n routine */ },
+      '1OP:10': () => { /* remove_obj object */ },
+      '1OP:11': () => { /* print_obj object */ },
+      '1OP:12': () => { /* ret (value) */ },
+      '1OP:13': () => { /* jump label */ },
+      '1OP:14': () => { /* print_paddr packed-address */ },
+      '1OP:15': () => { /* load (variable) -> (result) */ },
+
+      '0OP:0': () => { /* rtrue */ },
+      '0OP:1': () => { /* rfalse */ },
+      '0OP:2': () => { /* print */
+        let fullString = '';
+        let isLast = false;
+        while(!isLast) {
+          const { result, isLast: last } = this.decodeZSCII();
+          fullString += result;
+          isLast = last;
+        }
+        if(this.inputOutputDevice) {
+          this.inputOutputDevice.writeString(fullString);
+        } else {
+          console.log(fullString);
+        }
+      },
+      '0OP:3': () => { /* nop */ },
+      '0OP:4': () => { /* save (string) -> (result) */ },
+      '0OP:5': () => { /* restore (string) -> (result) */ },
+      '0OP:6': () => { /* restart */ },
+      '0OP:7': () => { /* quit */ },
+      '0OP:8': () => { /* new_line */ },
+      '0OP:9': () => { /* show_status */ },
+      '0OP:10': () => { /* verify (string) -> (result) */ },
+      '0OP:11': () => { /* extended opcode */ },
+
+      'EXTENDED:0': () => { /* call_vs2 routine arg1 arg2 -> (result) */ },
+      'EXTENDED:1': () => { /* call_vn2 routine arg1 arg2 */ },
+      'EXTENDED:2': () => { /* call_vs routine arg1 -> (result) */ },
+      'EXTENDED:3': () => { /* call_vn routine arg1 */ },
+      'EXTENDED:4': () => { /* tokenise (string) parse-buffer parse-buffer-length -> (result) */ },
+      'EXTENDED:5': () => { /* encode_text (string) -> (result) */ },
+      'EXTENDED:6': () => { /* copy_table source destination length */ },
+      'EXTENDED:7': () => { /* print_unicode (string) */ },
+      'EXTENDED:8': () => { /* check_unicode (string) -> (result) */ },
+    }
   }
 
-  decodeZSCII(data: Buffer): string {
+  decodeZSCII(): { result: string, isLast: boolean } {
     const A0 = 'abcdefghijklmnopqrstuvwxyz';
     const A1 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const A2 = '\n0123456789.,!?_#\'"/\\-:()';
@@ -282,15 +367,21 @@ class ZMachine {
     let result = '';
     let currentTable = 0;
     let shiftLock = false;
+    let isLast = false;
 
-      this.fetchNextInstruction(2).then((buffer) => {
+    this.fetchNextInstruction(2).then((buffer) => {
+        this.advancePC(2);
         const firstByte = buffer.readUInt8(0);
         const secondByte = buffer.readUInt8(1);
         const zchars = [
-          (firstByte & 0b11111100) >> 2,
-          ((firstByte & 0b00000011) << 4) | ((secondByte & 0b11110000) >> 4),
-          secondByte & 0b00001111
+          (firstByte & 0b01111100) >> 2,
+          ((firstByte & 0b00000011) << 4) | ((secondByte & 0b11100000) >> 4),
+          secondByte & 0b00011111
         ];
+
+        if(firstByte & 0b10000000) {
+          isLast = true;
+        }
 
         for (let zchar of zchars) {
           if (zchar >= 6 && zchar <= 31) {
@@ -329,7 +420,7 @@ class ZMachine {
         }
       });
 
-    return result;
+    return { result, isLast };
   }
 }
 
