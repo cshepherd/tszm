@@ -1,13 +1,13 @@
-import { ZMachine } from './ZMachine';
+import { ZMachine } from "./ZMachine";
 
 async function main() {
-  const path = 'images/ZorkI.z3';
+  const path = "images/ZorkI.z3";
   const zm = new ZMachine(path);
   try {
     await zm.load();
-    console.log('Header:', zm.getHeader());
+    console.log("Header:", zm.getHeader());
     const mem = await zm.readMemory(0x100, 16);
-    console.log('Memory[0x100..]:', mem);
+    console.log("Memory[0x100..]:", mem);
 
     // write a small sequence (be careful with real game files)
     // await zm.writeMemory(0x100, Buffer.from([0x01, 0x02, 0x03, 0x04]));
@@ -16,7 +16,7 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
