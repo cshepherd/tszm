@@ -1,4 +1,4 @@
-import { ZMachine } from './zmachine';
+import { ZMachine } from './ZMachine';
 
 async function main() {
   const path = 'images/ZorkI.z3';
