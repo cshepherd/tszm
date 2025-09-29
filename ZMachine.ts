@@ -1,7 +1,6 @@
 // Node-compatible Z-machine file I/O (TypeScript)
-import { open } from "fs/promises";
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
-import { buffer } from "stream/consumers";
+import { readFile } from "fs/promises";
 
 type zMachineHeader = {
   version: number; // target z-machine version
@@ -33,19 +32,22 @@ class ZMachine {
   private pc: number = 0; // current program counter
   private fileHandle: any;
   private header: zMachineHeader | null = null;
-  private inputOutputDevice: ZMInputOutputDevice | null = null;
+  private memory: Buffer | null = null;
   private globalVariables: Map<number, number> = new Map();
 
-  constructor(private filePath: string) {}
+  constructor(
+    private filePath: string,
+    private inputOutputDevice: ZMInputOutputDevice | null,
+  ) {}
 
   async load() {
-    this.fileHandle = await open(this.filePath, "r+");
-    const buffer = Buffer.alloc(64);
-    await this.fileHandle.read(buffer, 0, 64, 0);
-    this.parseHeader(buffer);
+    this.memory = await readFile(this.filePath);
+    this.parseHeader(this.memory);
 
     // init pc to first instruction in high memory + offset from header
     this.pc = this.header?.initialProgramCounter || 0;
+
+    //    this.parseObjectTable(this.memory, this.header?.objectTableAddress || 0);
   }
 
   private parseHeader(buffer: Buffer) {
@@ -73,16 +75,39 @@ class ZMachine {
   ): zMachineObject[] {
     let propertyDefaultSize: number = 31 * 2; // Property Default Table is 31 words
     let objectEntrySize: number = 9; // Each object entry is 9 bytes for version 1-3
+    let maxObjects: number = 255; // Max objects for version 1-3
     if (this.header && this.header.version > 3) {
       propertyDefaultSize = 63 * 2; // Property Default Table is 63 words for version 4 and above
       objectEntrySize = 14; // Each object entry is 14 bytes for version 4 and above
+      maxObjects = 65535; // Max objects for version 4 and above
     }
     const objects: zMachineObject[] = [];
-    const objectCount = (buffer.length - objectTableAddress) / objectEntrySize;
+    console.log("Object table address:", objectTableAddress);
+    console.log(
+      "Global variables address:",
+      this.header?.globalVariablesAddress || 0,
+    );
+    console.log("Property default size:", propertyDefaultSize);
+    console.log("Object entry size:", objectEntrySize);
+    let objectCount = 0;
+    if (this.header) {
+      objectCount =
+        (this.header.globalVariablesAddress -
+          objectTableAddress -
+          propertyDefaultSize) /
+        objectEntrySize;
+    }
+    console.log("Object count:", objectCount);
+    if (objectCount > maxObjects) {
+      // sanity check
+      console.log("Object count exceeds maximum, truncated to", maxObjects);
+      objectCount = maxObjects;
+    }
 
     for (let i = 0; i < objectCount; i++) {
       const offset =
         objectTableAddress + propertyDefaultSize + i * objectEntrySize;
+      console.log(`Object ${i + 1} offset:`, offset);
       const objBuffer = buffer.slice(offset, offset + objectEntrySize);
       if (this.header && this.header.version < 4) {
         // Version 1-3 object format
@@ -116,6 +141,10 @@ class ZMachine {
   }
 
   async readMemory(address: number, length: number): Promise<Buffer> {
+    if (this.memory) {
+      // return slice of in-memory buffer
+      return this.memory.slice(address, address + length);
+    }
     const buffer = Buffer.alloc(length);
     await this.fileHandle.read(buffer, 0, length, address);
     return buffer;
@@ -131,163 +160,11 @@ class ZMachine {
     }
   }
 
-  fetchNextInstruction(length: number): Promise<Buffer> {
-    return this.readMemory(this.pc, length);
-  }
-
   advancePC(offset: number) {
     this.pc += offset;
   }
 
   executeInstruction() {
-    let opcodeNumber: number | null = null;
-    let operandTypes: string[] = [];
-    let operandCount: number = 0;
-    let opcodeForm: string | null = null;
-    let operands = [];
-
-    // Fetch the next instruction
-    this.fetchNextInstruction(1)
-      .then((buffer) => {
-        const firstByte = buffer.readUInt8(0);
-
-        if (firstByte == 0xbe) {
-          // v5+ extended form
-          opcodeForm = "EXTENDED";
-          // fetch / decode opcode number
-          this.fetchNextInstruction(1).then((buffer) => {
-            opcodeNumber = buffer.readUInt8(0);
-          });
-          // fetch / decode operand types byte
-          this.fetchNextInstruction(1).then((buffer) => {
-            let operandTypesByte = buffer.readUInt8(0);
-            for (let i = 6; i > -1; i -= 2) {
-              let typeBits = (operandTypesByte & 0b11000000) >> i;
-              if (typeBits == 0b11) {
-                break; // no more operands
-              } else if (typeBits == 0b01) {
-                operandTypes.push("SMALL_CONST");
-              } else if (typeBits == 0b10) {
-                operandTypes.push("VARIABLE");
-              } else {
-                operandTypes.push("LARGE_CONST");
-              }
-            }
-          });
-        } else {
-          let formDiscriminator = (firstByte & 0b11000000) >> 6;
-          if (formDiscriminator == 0b11) {
-            opcodeForm = "VAR";
-            opcodeNumber = firstByte & 0b00011111;
-            if ((firstByte & 0b00100000) == 0b0) {
-              operandCount = 2;
-            } else {
-              // fetch / decode operand types byte
-              this.fetchNextInstruction(1).then((buffer) => {
-                let operandTypesByte = buffer.readUInt8(0);
-                for (let i = 6; i > -1; i -= 2) {
-                  let typeBits = (operandTypesByte & 0b11000000) >> i;
-                  if (typeBits == 0b11) {
-                    break; // no more operands
-                  } else if (typeBits == 0b01) {
-                    operandTypes.push("SMALL_CONST");
-                  } else if (typeBits == 0b10) {
-                    operandTypes.push("VARIABLE");
-                  } else {
-                    operandTypes.push("LARGE_CONST");
-                  }
-                }
-              });
-              operandCount = operandTypes.length;
-            }
-          } else if (formDiscriminator == 0b10) {
-            // short form: always 1OP or 0OP
-            // operand type LARGE_CONST, SMALL_CONST, VARIABLE, or none
-            opcodeForm = "SHORT";
-            opcodeNumber = firstByte & 0b00001111;
-            if ((firstByte & 0b00110000) >> 4 == 0b11) {
-              operandCount = 0;
-            } else {
-              operandCount = 1;
-              if ((firstByte & 0b00110000) >> 4 == 0b00) {
-                operandTypes.push("LARGE_CONST");
-              } else if ((firstByte & 0b00110000) >> 4 == 0b01) {
-                operandTypes.push("SMALL_CONST");
-              } else {
-                operandTypes.push("VARIABLE");
-              }
-            }
-          } else {
-            // long form: always 2OP
-            // operand types SMALL_CONST or VARIABLE
-            opcodeForm = "LONG";
-            operandCount = 2;
-            opcodeNumber = firstByte & 0b00011111;
-            if ((firstByte & 0b00100000) == 0b0) {
-              operandTypes.push("SMALL_CONST");
-            } else {
-              operandTypes.push("VARIABLE");
-            }
-            if ((firstByte & 0b00010000) == 0b0) {
-              operandTypes.push("SMALL_CONST");
-            } else {
-              operandTypes.push("VARIABLE");
-            }
-          }
-        }
-      })
-      .then(() => {
-        // Fetch operands based on operandTypes
-        let offset = 1; // already read first byte
-        if (opcodeForm == "EXTENDED") {
-          offset += 2; // extended form has 2 extra bytes (opcode + operand types)
-        } else if (opcodeForm == "VAR" && operandCount > 2) {
-          offset += 1; // var form with more than 2 operands has an extra operand types byte
-        } else if (opcodeForm == "SHORT" && operandCount == 0) {
-          // no extra bytes
-        } else if (opcodeForm == "SHORT" && operandCount == 1) {
-          offset += 1; // short form with 1 operand has no extra bytes
-        } else if (opcodeForm == "LONG") {
-          offset += 0; // long form has no extra bytes
-        }
-
-        let promises = [];
-        for (let type of operandTypes) {
-          if (type == "SMALL_CONST") {
-            promises.push(
-              this.fetchNextInstruction(1).then((buffer) => {
-                offset += 1;
-                return buffer.readUInt8(0);
-              }),
-            );
-          } else if (type == "VARIABLE") {
-            promises.push(
-              this.fetchNextInstruction(1).then((buffer) => {
-                offset += 1;
-                let varNum = buffer.readUInt8(0);
-                return this.globalVariables.get(varNum) || 0;
-              }),
-            );
-          } else if (type == "LARGE_CONST") {
-            promises.push(
-              this.fetchNextInstruction(2).then((buffer) => {
-                offset += 2;
-                return buffer.readUInt16BE(0);
-              }),
-            );
-          }
-        }
-        return Promise.all(promises).then((values) => {
-          operands = values;
-          this.advancePC(offset);
-          // Here you would execute the opcode with the operands
-          console.log(
-            `Executed opcode ${opcodeNumber} with operands ${operands}`,
-          );
-        });
-      });
-
-    // dispatch decoded opcode to handler
     const handlers = {
       "2OP:1": () => {
         /* je a b ?(label) */
@@ -499,7 +376,255 @@ class ZMachine {
       "EXTENDED:8": () => {
         /* check_unicode (string) -> (result) */
       },
+
+      "VAR:0": () => {
+        /* call routine ... */
+        let calledRoutine = operands[0];
+        let args = operands.slice(1);
+        console.log(`Calling routine at ${calledRoutine} with args ${args}`);
+      },
+      "VAR:1": () => {
+        /* call_vs routine ... -> (result) */
+      },
+      "VAR:2": () => {
+        /* storew array word-index value */
+      },
+      "VAR:3": () => {
+        /* storeb array byte-index value */
+      },
+      "VAR:4": () => {
+        /* put_prop object property value */
+      },
+      "VAR:5": () => {
+        /* sread (text-buffer) parse-buffer parse-buffer-length */
+      },
+      "VAR:6": () => {
+        /* print_char char */
+      },
+      "VAR:7": () => {
+        /* print_num number */
+      },
+      "VAR:8": () => {
+        /* random range -> (result) */
+      },
+      "VAR:9": () => {
+        /* push value */
+      },
+      "VAR:10": () => {
+        /* pull (variable) */
+      },
+      "VAR:11": () => {
+        /* call_vn routine ... */
+      },
+      "VAR:12": () => {
+        /* call_vs routine ... -> (result) */
+      },
+      "VAR:13": () => {
+        /* set_font font */
+      },
+      "VAR:14": () => {
+        /* draw_picture picture */
+      },
+      "VAR:15": () => {
+        /* picture_data picture -> (result) */
+      },
+      "VAR:16": () => {
+        /* erase_picture */
+      },
+      "VAR:17": () => {
+        /* set_margins left right */
+      },
+      "VAR:18": () => {
+        /* save_game (string) -> (result) */
+      },
+      "VAR:19": () => {
+        /* restore_game (string) -> (result) */
+      },
+      "VAR:20": () => {
+        /* restart_game */
+      },
+      "VAR:21": () => {
+        /* restore_undo */
+      },
+      "VAR:22": () => {
+        /* print_unicode_char unicode-char */
+      },
+      "VAR:23": () => {
+        /* print_unicode_string unicode-string */
+      },
+      "VAR:24": () => {
+        /* get_wind_prop window property -> (result) */
+      },
+      "VAR:25": () => {
+        /* set_wind_prop window property value */
+      },
+      "VAR:26": () => {
+        /* split_window lines */
+      },
+      "VAR:27": () => {
+        /* set_window window */
+      },
+      "VAR:28": () => {
+        /* erase_window window */
+      },
+      "VAR:29": () => {
+        /* create_window lines attributes -> (result) */
+      },
+      "VAR:30": () => {
+        /* move_window window lines */
+      },
+      "VAR:31": () => {
+        /* window_size window -> (result) */
+      },
     };
+
+    console.log(`Executing instruction at PC: ${this.pc.toString(16)}`);
+    let opcodeNumber: number | null = null;
+    let operandTypes: string[] = [];
+    let operandCount: number = 0;
+    let opcodeForm: string | null = null;
+    let operands: any[] = [];
+
+    // Fetch the first instruction byte synchronously from memory
+    if (!this.memory) {
+      console.error("Memory not loaded");
+      return;
+    }
+    const firstByte = this.memory.readUInt8(this.pc);
+
+    if (firstByte == 0xbe) {
+      // v5+ extended form
+      opcodeForm = "EXTENDED";
+      // opcode number at pc+1
+      opcodeNumber = this.memory.readUInt8(this.pc + 1);
+      // operand types at pc+2
+      let operandTypesByte = this.memory.readUInt8(this.pc + 2);
+      for (let i = 6; i > -1; i -= 2) {
+        let typeBits = (operandTypesByte & 0b11000000) >> i;
+        if (typeBits == 0b11) {
+          break; // no more operands
+        } else if (typeBits == 0b01) {
+          operandTypes.push("SMALL_CONST");
+        } else if (typeBits == 0b10) {
+          operandTypes.push("VARIABLE");
+        } else {
+          operandTypes.push("LARGE_CONST");
+        }
+        operandTypesByte <<= 2;
+      }
+    } else {
+      let formDiscriminator = (firstByte & 0b11000000) >> 6;
+      if (formDiscriminator == 0b11) {
+        opcodeForm = "VAR";
+        opcodeNumber = firstByte & 0b00011111;
+        if ((firstByte & 0b00100000) == 0b0) {
+          operandCount = 2;
+        } else {
+          // operand types byte at pc+1
+          let operandTypesByte = this.memory.readUInt8(this.pc + 1);
+          for (let i = 6; i > -1; i -= 2) {
+            let typeBits = (operandTypesByte & 0b11000000) >> i;
+            if (typeBits == 0b11) {
+              break; // no more operands
+            } else if (typeBits == 0b01) {
+              operandTypes.push("SMALL_CONST");
+            } else if (typeBits == 0b10) {
+              operandTypes.push("VARIABLE");
+            } else {
+              operandTypes.push("LARGE_CONST");
+            }
+          }
+          operandCount = operandTypes.length;
+        }
+      } else if (formDiscriminator == 0b10) {
+        // short form: always 1OP or 0OP
+        opcodeForm = "SHORT";
+        opcodeNumber = firstByte & 0b00001111;
+        if ((firstByte & 0b00110000) >> 4 == 0b11) {
+          operandCount = 0;
+        } else {
+          operandCount = 1;
+          if ((firstByte & 0b00110000) >> 4 == 0b00) {
+            operandTypes.push("LARGE_CONST");
+          } else if ((firstByte & 0b00110000) >> 4 == 0b01) {
+            operandTypes.push("SMALL_CONST");
+          } else {
+            operandTypes.push("VARIABLE");
+          }
+        }
+      } else {
+        // long form: always 2OP
+        opcodeForm = "LONG";
+        operandCount = 2;
+        opcodeNumber = firstByte & 0b00011111;
+        if ((firstByte & 0b00100000) == 0b0) {
+          operandTypes.push("SMALL_CONST");
+        } else {
+          operandTypes.push("VARIABLE");
+        }
+        if ((firstByte & 0b00010000) == 0b0) {
+          operandTypes.push("SMALL_CONST");
+        } else {
+          operandTypes.push("VARIABLE");
+        }
+      }
+    }
+
+    // Fetch operands based on operandTypes
+    let offset = 1; // already read first byte
+    if (opcodeForm == "EXTENDED") {
+      offset += 2; // extended form has 2 extra bytes (opcode + operand types)
+    } else if (opcodeForm == "VAR" && operandCount > 2) {
+      offset += 1; // var form with more than 2 operands has an extra operand types byte
+    } else if (opcodeForm == "SHORT" && operandCount == 0) {
+      // no extra bytes
+    } else if (opcodeForm == "SHORT" && operandCount == 1) {
+      offset += 1; // short form with 1 operand has no extra bytes
+    } else if (opcodeForm == "LONG") {
+      offset += 0; // long form has no extra bytes
+    }
+
+    for (let type of operandTypes) {
+      if (type == "SMALL_CONST") {
+        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 1);
+        offset += 1;
+        operands.push(buf.readUInt8(0));
+      } else if (type == "VARIABLE") {
+        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 1);
+        offset += 1;
+        let varNum = buf.readUInt8(0);
+        operands.push(this.globalVariables.get(varNum) || 0);
+      } else if (type == "LARGE_CONST") {
+        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 2);
+        offset += 2;
+        operands.push(buf.readUInt16BE(0));
+      }
+    }
+    this.advancePC(offset);
+    console.log(`Opcode form: ${opcodeForm}, Opcode number: ${opcodeNumber}`);
+    console.log(`Executed opcode ${opcodeNumber} with operands ${operands}`);
+
+    // dispatch decoded opcode to handler
+    if (opcodeForm && opcodeNumber !== null) {
+      let handlerKey = `${opcodeForm}:${opcodeNumber}`;
+      if (opcodeForm == "SHORT" && opcodeNumber >= 0 && opcodeNumber <= 15) {
+        handlerKey = `1OP:${opcodeNumber}`;
+      } else if (
+        opcodeForm == "LONG" &&
+        opcodeNumber >= 0 &&
+        opcodeNumber <= 31
+      ) {
+        handlerKey = `2OP:${opcodeNumber}`;
+      }
+      const handler = (handlers as Record<string, () => void>)[handlerKey];
+      if (handler) {
+        handler();
+      } else {
+        console.error(`No handler for opcode ${handlerKey}`);
+      }
+    } else {
+      console.error("Failed to decode opcode");
+    }
   }
 
   decodeZSCII(): { result: string; isLast: boolean } {
@@ -513,56 +638,57 @@ class ZMachine {
     let shiftLock = false;
     let isLast = false;
 
-    this.fetchNextInstruction(2).then((buffer) => {
-      this.advancePC(2);
-      const firstByte = buffer.readUInt8(0);
-      const secondByte = buffer.readUInt8(1);
-      const zchars = [
-        (firstByte & 0b01111100) >> 2,
-        ((firstByte & 0b00000011) << 4) | ((secondByte & 0b11100000) >> 4),
-        secondByte & 0b00011111,
-      ];
+    if (!this.memory) {
+      return { result, isLast };
+    }
+    const firstByte = this.memory.readUInt8(this.pc);
+    const secondByte = this.memory.readUInt8(this.pc + 1);
+    this.advancePC(2);
+    const zchars = [
+      (firstByte & 0b01111100) >> 2,
+      ((firstByte & 0b00000011) << 4) | ((secondByte & 0b11100000) >> 4),
+      secondByte & 0b00011111,
+    ];
 
-      if (firstByte & 0b10000000) {
-        isLast = true;
-      }
+    if (firstByte & 0b10000000) {
+      isLast = true;
+    }
 
-      for (let zchar of zchars) {
-        if (zchar >= 6 && zchar <= 31) {
-          result += ZSCII_TABLES[currentTable][zchar - 6];
-          if (!shiftLock) {
-            currentTable = 0; // revert to A0 after single shift
-          }
-        } else if (zchar == 0) {
-          result += " ";
-          if (!shiftLock) {
-            currentTable = 0; // revert to A0 after single shift
-          }
-        } else if (zchar == 1) {
-          result += "\n";
-          if (!shiftLock) {
-            currentTable = 0; // revert to A0 after single shift
-          }
-        } else if (zchar == 2) {
-          currentTable = 1; // shift to A1
-          if (!shiftLock) {
-            shiftLock = false; // single shift
-          }
-        } else if (zchar == 3) {
-          currentTable = 2; // shift to A2
-          if (!shiftLock) {
-            shiftLock = false; // single shift
-          }
-        } else if (zchar == 4) {
-          shiftLock = true; // lock shift for next character
-        } else if (zchar == 5) {
-          currentTable = (currentTable + 1) % 3; // toggle table
-          if (!shiftLock) {
-            shiftLock = false; // single shift
-          }
+    for (let zchar of zchars) {
+      if (zchar >= 6 && zchar <= 31) {
+        result += ZSCII_TABLES[currentTable][zchar - 6];
+        if (!shiftLock) {
+          currentTable = 0; // revert to A0 after single shift
+        }
+      } else if (zchar == 0) {
+        result += " ";
+        if (!shiftLock) {
+          currentTable = 0; // revert to A0 after single shift
+        }
+      } else if (zchar == 1) {
+        result += "\n";
+        if (!shiftLock) {
+          currentTable = 0; // revert to A0 after single shift
+        }
+      } else if (zchar == 2) {
+        currentTable = 1; // shift to A1
+        if (!shiftLock) {
+          shiftLock = false; // single shift
+        }
+      } else if (zchar == 3) {
+        currentTable = 2; // shift to A2
+        if (!shiftLock) {
+          shiftLock = false; // single shift
+        }
+      } else if (zchar == 4) {
+        shiftLock = true; // lock shift for next character
+      } else if (zchar == 5) {
+        currentTable = (currentTable + 1) % 3; // toggle table
+        if (!shiftLock) {
+          shiftLock = false; // single shift
         }
       }
-    });
+    }
 
     return { result, isLast };
   }

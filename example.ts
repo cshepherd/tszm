@@ -1,18 +1,36 @@
 import { ZMachine } from "./ZMachine";
+import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
+
+// A simple console-based implementation of ZMInputOutputDevice
+class ZMConsole implements ZMInputOutputDevice {
+  async readChar(): Promise<string> {
+    return new Promise((resolve) => {
+      process.stdin.once("data", (data) => {
+        resolve(data.toString().charAt(0));
+      });
+    });
+  }
+
+  async writeChar(char: string): Promise<void> {
+    process.stdout.write(char);
+  }
+
+  async writeString(str: string): Promise<void> {
+    process.stdout.write(str);
+  }
+}
 
 async function main() {
+  const consoleDevice = new ZMConsole();
   const path = "images/ZorkI.z3";
-  const zm = new ZMachine(path);
+  const zm = new ZMachine(path, consoleDevice);
   try {
     await zm.load();
     console.log("Header:", zm.getHeader());
-    const mem = await zm.readMemory(0x100, 16);
-    console.log("Memory[0x100..]:", mem);
-
-    // write a small sequence (be careful with real game files)
-    // await zm.writeMemory(0x100, Buffer.from([0x01, 0x02, 0x03, 0x04]));
-  } finally {
-    await zm.close();
+    console.log("Starting execution...");
+    await zm.executeInstruction();
+  } catch (err) {
+    console.error("Error:", err);
   }
 }
 
