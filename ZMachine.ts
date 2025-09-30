@@ -34,6 +34,7 @@ class ZMachine {
   private header: zMachineHeader | null = null;
   private memory: Buffer | null = null;
   private globalVariables: Map<number, number> = new Map();
+  private stack: number[] = [];
 
   constructor(
     private filePath: string,
@@ -166,6 +167,10 @@ class ZMachine {
 
   executeInstruction() {
     const handlers = {
+      "2OP:0": () => {
+        /* nop */
+        console.log("NOP executed");
+      },
       "2OP:1": () => {
         /* je a b ?(label) */
       },
@@ -378,13 +383,20 @@ class ZMachine {
       },
 
       "VAR:0": () => {
-        /* call routine ... */
-        let calledRoutine = operands[0];
-        let args = operands.slice(1);
-        console.log(`Calling routine at ${calledRoutine} with args ${args}`);
+        /* call / call_vn */
+        let calledRoutine = operands[0].toString(16);
+        let args = operands.slice(1).map((a) => a.toString(16));
+        console.log(`@call Calling routine at ${calledRoutine} with args ${args}`);
+        this.stack.push(this.pc);
+        this.pc = operands[0];
       },
       "VAR:1": () => {
-        /* call_vs routine ... -> (result) */
+        /* call_vs */
+        let calledRoutine = operands[0].toString(16);
+        let args = operands.slice(1).map((a) => a.toString(16));
+        console.log(`@call Calling routine at ${calledRoutine} with args ${args}`);
+        this.stack.push(this.pc);
+        this.pc = operands[0];
       },
       "VAR:2": () => {
         /* storew array word-index value */
