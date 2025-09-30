@@ -17,6 +17,7 @@ type zMachineHeader = {
   abbreviationsAddress: number; // abbreviations address
   fileLength: number; // file length
   checksumValid: boolean; // checksum valid
+  alphabetIdentifier: number; // alphabet identifier
 };
 
 type zMachineObject = {
@@ -55,7 +56,7 @@ class ZMachine {
     this.header = {
       version: buffer.readUInt8(0),
       release: buffer.readUInt16BE(2),
-      serial: buffer.toString("ascii", 4, 12).replace(/\0/g, ""),
+      serial: buffer.toString("ascii", 18, 24).replace(/\0/g, ""),
       checksum: buffer.readUInt16BE(14),
       initialProgramCounter: buffer.readUInt16BE(6),
       dictionaryAddress: buffer.readUInt16BE(8),
@@ -65,8 +66,9 @@ class ZMachine {
       dynamicMemoryAddress: buffer.readUInt16BE(18),
       highMemoryAddress: buffer.readUInt16BE(20),
       abbreviationsAddress: buffer.readUInt16BE(24),
-      fileLength: buffer.readUInt16BE(30) * 2,
+      fileLength: buffer.readUInt16BE(26) * 2,
       checksumValid: false,
+      alphabetIdentifier: buffer.readUInt16BE(52),
     };
   }
 
@@ -343,28 +345,29 @@ class ZMachine {
         /* call_1s routine -> (result) */
       },
       "1OP:9": () => {
-        /* call_1n routine */
-      },
-      "1OP:10": () => {
         /* remove_obj object */
       },
-      "1OP:11": () => {
+      "1OP:10": () => {
         /* print_obj object */
       },
-      "1OP:12": () => {
+      "1OP:11": () => {
         /* ret (value) */
       },
-      "1OP:13": () => {
+      "1OP:12": () => {
         /* jump label */
       },
-      "1OP:14": () => {
+      "1OP:13": () => {
         /* print_paddr packed-address */
+        if(operands[0]<0) {
+          operands[0] = 65536 - operands[0];
+        }
         const origPC = this.pc;
-        this.pc = operands[0]*2;
-        this.print();
+        this.pc = operands[0];
+        console.log(`@print_paddr Packed address: ${operands[0]}`);
+        this.print(false);
         this.pc = origPC;
       },
-      "1OP:15": () => {
+      "1OP:14": () => {
         /* load (variable) -> (result) */
       },
 
@@ -683,23 +686,20 @@ class ZMachine {
 
     for (let type of operandTypes) {
       if (type == "SMALL_CONST") {
-        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 1);
+        operands.push(this.memory.readUInt8(this.pc + offset));
         offset += 1;
-        operands.push(buf.readUInt8(0));
       } else if (type == "VARIABLE") {
-        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 1);
+        let varNum = this.memory.readUInt8(this.pc + offset);
         offset += 1;
-        let varNum = buf.readUInt8(0);
         operands.push(this.getVariableValue(varNum) || 0);
       } else if (type == "LARGE_CONST") {
-        const buf = this.memory.slice(this.pc + offset, this.pc + offset + 2);
+        operands.push(this.memory.readUInt16BE(this.pc + offset));
         offset += 2;
-        operands.push(buf.readUInt16BE(0));
       }
     }
     this.advancePC(offset);
     console.log(`Opcode form: ${opcodeForm}, Opcode number: ${opcodeNumber}`);
-    console.log(`Executed opcode ${opcodeNumber} with operands ${operands}`);
+    console.log(`Executed opcode ${opcodeNumber} with operands ${operands.join(", ")}`);
 
     // dispatch decoded opcode to handler
     let firstPart = 'VAR';
@@ -733,8 +733,8 @@ class ZMachine {
     let currentTable = 0;
     let oneShift: any = false;
     let isLast = false;
-    let abbrev1: any = false;
-    let abbrev2: any = false;
+    let abbrev1: number = -1;
+    let abbrev2: number = -1;
 
     if (!this.memory) {
       return result;
@@ -755,28 +755,27 @@ class ZMachine {
       }
 
       for (let zchar of zchars) {
-        if( abbrev1 != false ) {
+        if( abbrev1 > -1 ) {
           if(this.header) {
             abbrev2 = zchar;
 
-            const abbreviationNumber = (32*(abbrev1-1)) + abbrev2;
+            const abbreviationNumber = 32*abbrev1 + abbrev2;
             const origPC = this.pc;
             this.pc = (this.memory.readUint16BE(this.header?.abbreviationsAddress + (abbreviationNumber*2)))*2;
-            result += '['+this.decodeZSCII(false)+']';
+            result += this.decodeZSCII(false);
             this.pc = origPC;
-//result += `[Abbr ${abbreviationNumber}]`;
 
-            abbrev1 = false;
-            abbrev2 = false;
+            abbrev1 = -1;
+            abbrev2 = -1;
             continue;
           }
         }
         if (zchar == 0) {
           result += ' ';
         }
-        if (zchar in [1, 2, 3] ) {
+        if ([1, 2, 3].includes(zchar)) {
           if(abbreviations) {
-            abbrev1 = zchar;
+            abbrev1 = zchar-1;
             continue;
           }
         }
