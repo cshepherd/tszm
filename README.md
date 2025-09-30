@@ -1,4 +1,4 @@
-# tzsm
+# TSZM
 
 > TypeScript-based Inform/Z-Machine interpreter
 
