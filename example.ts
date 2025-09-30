@@ -22,7 +22,7 @@ class ZMConsole implements ZMInputOutputDevice {
 
 async function main() {
   const consoleDevice = new ZMConsole();
-  const path = "images/ZorkI.z3";
+  const path = "images/LeatherGoddesses.z3";
   const zm = new ZMachine(path, consoleDevice);
   try {
     await zm.load();

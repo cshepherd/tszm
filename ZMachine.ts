@@ -213,6 +213,15 @@ class ZMachine {
     this.pc += offset;
   }
 
+  print(abbreviations:boolean = true) {
+    let fullString = this.decodeZSCII(abbreviations);
+    if (this.inputOutputDevice) {
+      this.inputOutputDevice.writeString(fullString);
+    } else {
+      console.log(fullString);
+    }
+  }
+
   executeInstruction() {
     const handlers = {
       "2OP:0": () => {
@@ -256,13 +265,15 @@ class ZMachine {
         /* clear_attr object attribute */
       },
       "2OP:13": () => {
-        /* store (variable) value */
+        console.log(`@store ${operands[1]} -> ${operands[0]}`);
+        this.setVariableValue(operands[0], operands[1]);
       },
       "2OP:14": () => {
         /* insert_obj object destination */
       },
       "2OP:15": () => {
         /* loadw array word-index -> (result) */
+        console.log("@loadw");
       },
       "2OP:16": () => {
         /* loadb array byte-index -> (result) */
@@ -348,6 +359,10 @@ class ZMachine {
       },
       "1OP:14": () => {
         /* print_paddr packed-address */
+        const origPC = this.pc;
+        this.pc = operands[0]*2;
+        this.print();
+        this.pc = origPC;
       },
       "1OP:15": () => {
         /* load (variable) -> (result) */
@@ -361,18 +376,7 @@ class ZMachine {
       },
       "0OP:2": () => {
         /* print */
-        let fullString = "";
-        let isLast = false;
-        while (!isLast) {
-          const { result, isLast: last } = this.decodeZSCII();
-          fullString += result;
-          isLast = last;
-        }
-        if (this.inputOutputDevice) {
-          this.inputOutputDevice.writeString(fullString);
-        } else {
-          console.log(fullString);
-        }
+        this.print();
       },
       "0OP:3": () => {
         /* nop */
@@ -400,6 +404,15 @@ class ZMachine {
       },
       "0OP:11": () => {
         /* extended opcode */
+      },
+      "0OP:12": () => {
+        console.log("@show_status");
+      },
+      "0OP:13": () => {
+        /* verify */
+      },
+      "0OP:15": () => {
+        /* piracy */
       },
 
       "EXTENDED:0": () => {
@@ -441,10 +454,13 @@ class ZMachine {
         console.log(
           `@call Calling routine at ${calledRoutine} with args ${args}`,
         );
+        // push pc already advanced past CALL and arguments
         this.stack.push(this.pc);
 
+        // set current context for variables
         this.currentContext = operands[0];
         let newPC = this.currentContext;
+        // write local variables and skip PC past them
         const localVarCount = this.memory.readUInt8(this.currentContext);
         newPC++;
         for (
@@ -452,7 +468,7 @@ class ZMachine {
           operandIndex < operandTypes.length;
           operandIndex++
         ) {
-          this.memory.writeUint16BE(operands[operandIndex]);
+          this.memory.writeUint16BE(operands[operandIndex], this.currentContext + 1 + (2*(operandIndex-1)) );
           newPC += 2;
         }
       },
@@ -571,6 +587,7 @@ class ZMachine {
       return;
     }
     const firstByte = this.memory.readUInt8(this.pc);
+    console.log(`firstByte: ${firstByte.toString(16)}`);
 
     if (firstByte == 0xbe) {
       // v5+ extended form
@@ -685,92 +702,101 @@ class ZMachine {
     console.log(`Executed opcode ${opcodeNumber} with operands ${operands}`);
 
     // dispatch decoded opcode to handler
-    if (opcodeForm && opcodeNumber !== null) {
-      let handlerKey = `${opcodeForm}:${opcodeNumber}`;
-      if (opcodeForm == "SHORT" && opcodeNumber >= 0 && opcodeNumber <= 15) {
-        handlerKey = `1OP:${opcodeNumber}`;
-      } else if (
-        opcodeForm == "LONG" &&
-        opcodeNumber >= 0 &&
-        opcodeNumber <= 31
-      ) {
-        handlerKey = `2OP:${opcodeNumber}`;
-      }
-      const handler = (handlers as Record<string, () => void>)[handlerKey];
-      if (handler) {
-        handler();
-      } else {
-        console.error(`No handler for opcode ${handlerKey}`);
-      }
+    let firstPart = 'VAR';
+    if( operandCount == 1 ) {
+      firstPart = '1OP';
+    } else if ( operandCount == 0 ) {
+      firstPart = '0OP';
+    } else if ( operandCount == 2 ) {
+      firstPart = '2OP';
+    }
+    if( opcodeForm == 'EXTEDNED' ) {
+      firstPart = 'EXT';
+    }
+    const handlerKey = `${firstPart}:${opcodeNumber}`;
+    console.log(handlerKey);
+    const handler = (handlers as Record<string, () => void>)[handlerKey];
+    if (handler) {
+      handler();
     } else {
-      console.error("Failed to decode opcode");
+      console.error(`No handler for opcode ${handlerKey}`);
     }
   }
 
-  decodeZSCII(): { result: string; isLast: boolean } {
+  decodeZSCII(abbreviations:boolean=true): string {
     const A0 = "abcdefghijklmnopqrstuvwxyz";
     const A1 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const A2 = "\n0123456789.,!?_#'\"/\\-:()";
+    const A2 = " \n0123456789.,!?_#'\"/\\-:()";
     const ZSCII_TABLES = [A0, A1, A2];
 
     let result = "";
     let currentTable = 0;
-    let shiftLock = false;
+    let oneShift: any = false;
     let isLast = false;
+    let abbrev1: any = false;
+    let abbrev2: any = false;
 
     if (!this.memory) {
-      return { result, isLast };
-    }
-    const firstByte = this.memory.readUInt8(this.pc);
-    const secondByte = this.memory.readUInt8(this.pc + 1);
-    this.advancePC(2);
-    const zchars = [
-      (firstByte & 0b01111100) >> 2,
-      ((firstByte & 0b00000011) << 4) | ((secondByte & 0b11100000) >> 4),
-      secondByte & 0b00011111,
-    ];
-
-    if (firstByte & 0b10000000) {
-      isLast = true;
+      return result;
     }
 
-    for (let zchar of zchars) {
-      if (zchar >= 6 && zchar <= 31) {
-        result += ZSCII_TABLES[currentTable][zchar - 6];
-        if (!shiftLock) {
-          currentTable = 0; // revert to A0 after single shift
+    do {
+      const firstByte = this.memory.readUInt8(this.pc);
+      const secondByte = this.memory.readUInt8(this.pc + 1);
+      this.advancePC(2);
+      const zchars = [
+        (firstByte & 0b01111100) >> 2,
+        ((firstByte & 0b00000011) << 3) | ((secondByte & 0b11100000) >> 5),
+        secondByte & 0b00011111,
+      ];
+
+      if (firstByte & 0b10000000) {
+        isLast = true;
+      }
+
+      for (let zchar of zchars) {
+        if( abbrev1 != false ) {
+          if(this.header) {
+            abbrev2 = zchar;
+
+            const abbreviationNumber = (32*(abbrev1-1)) + abbrev2;
+            const origPC = this.pc;
+            this.pc = (this.memory.readUint16BE(this.header?.abbreviationsAddress + (abbreviationNumber*2)))*2;
+            result += '['+this.decodeZSCII(false)+']';
+            this.pc = origPC;
+//result += `[Abbr ${abbreviationNumber}]`;
+
+            abbrev1 = false;
+            abbrev2 = false;
+            continue;
+          }
         }
-      } else if (zchar == 0) {
-        result += " ";
-        if (!shiftLock) {
-          currentTable = 0; // revert to A0 after single shift
+        if (zchar == 0) {
+          result += ' ';
         }
-      } else if (zchar == 1) {
-        result += "\n";
-        if (!shiftLock) {
-          currentTable = 0; // revert to A0 after single shift
+        if (zchar in [1, 2, 3] ) {
+          if(abbreviations) {
+            abbrev1 = zchar;
+            continue;
+          }
         }
-      } else if (zchar == 2) {
-        currentTable = 1; // shift to A1
-        if (!shiftLock) {
-          shiftLock = false; // single shift
-        }
-      } else if (zchar == 3) {
-        currentTable = 2; // shift to A2
-        if (!shiftLock) {
-          shiftLock = false; // single shift
-        }
-      } else if (zchar == 4) {
-        shiftLock = true; // lock shift for next character
-      } else if (zchar == 5) {
-        currentTable = (currentTable + 1) % 3; // toggle table
-        if (!shiftLock) {
-          shiftLock = false; // single shift
+        if (zchar >= 6 && zchar <= 31) {
+          result += ZSCII_TABLES[currentTable][zchar - 6];
+          if (oneShift !== false) {
+            currentTable = oneShift;
+            oneShift = false;
+          }
+        } else if (zchar == 4) {
+          oneShift = 0;
+          currentTable = 1;
+        } else if (zchar == 5) {
+          oneShift = 0;
+          currentTable = 2;
         }
       }
-    }
+    } while( !isLast );
 
-    return { result, isLast };
+    return result;
   }
 }
 
