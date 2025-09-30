@@ -33,8 +33,8 @@ class ZMachine {
   private fileHandle: any;
   private header: zMachineHeader | null = null;
   private memory: Buffer | null = null;
-  private globalVariables: Map<number, number> = new Map();
   private stack: number[] = [];
+  private currentContext: number = 0;
 
   constructor(
     private filePath: string,
@@ -137,22 +137,70 @@ class ZMachine {
     return objects;
   }
 
+  getGlobalVariableValue(variableNumber: number): any {
+    if (!this.header) {
+      console.error("Header not loaded");
+      return;
+    }
+
+    const memoryAddress =
+      this.header.globalVariablesAddress + (variableNumber - 16) * 2;
+    return this.memory?.readInt16BE(memoryAddress);
+  }
+
+  setGlobalVariableValue(variableNumber: number, value: number): any {
+    if (!this.header) {
+      console.error("Header not loaded");
+      return;
+    }
+
+    const memoryAddress =
+      this.header.globalVariablesAddress + (variableNumber - 16) * 2;
+    return this.memory?.writeInt16BE(value);
+  }
+
+  getLocalVariableValue(variableNumber: number): any {
+    const memLocation = this.currentContext + (variableNumber - 1) * 2;
+
+    return this.memory?.readInt16BE(memLocation);
+  }
+
+  setLocalVariableValue(variableNumber: number, value: number): any {
+    const memLocation = this.currentContext + (variableNumber - 1) * 2;
+
+    return this.memory?.writeInt16BE(value);
+  }
+
+  getVariableValue(variableNumber: number): any {
+    // Variable 0: SP
+    if (variableNumber == 0) {
+      return this.stack.pop();
+    }
+    if (variableNumber < 16) {
+      return this.getLocalVariableValue(variableNumber);
+    }
+    // Variable 16-255: Globals
+    if (variableNumber >= 16) {
+      return this.getGlobalVariableValue(variableNumber);
+    }
+  }
+
+  setVariableValue(variableNumber: number, value: number): any {
+    // Variable 0: SP
+    if (variableNumber == 0) {
+      return this.stack.push(value);
+    }
+    if (variableNumber < 16) {
+      return this.setLocalVariableValue(variableNumber, value);
+    }
+    // Variable 16-255: Globals
+    if (variableNumber >= 16) {
+      return this.setGlobalVariableValue(variableNumber, value);
+    }
+  }
+
   getHeader() {
     return this.header;
-  }
-
-  async readMemory(address: number, length: number): Promise<Buffer> {
-    if (this.memory) {
-      // return slice of in-memory buffer
-      return this.memory.slice(address, address + length);
-    }
-    const buffer = Buffer.alloc(length);
-    await this.fileHandle.read(buffer, 0, length, address);
-    return buffer;
-  }
-
-  async writeMemory(address: number, data: Buffer) {
-    await this.fileHandle.write(data, 0, data.length, address);
   }
 
   async close() {
@@ -384,17 +432,37 @@ class ZMachine {
 
       "VAR:0": () => {
         /* call / call_vn */
+        if (!this.memory) {
+          console.error("Memory not loaded");
+          return;
+        }
         let calledRoutine = operands[0].toString(16);
         let args = operands.slice(1).map((a) => a.toString(16));
-        console.log(`@call Calling routine at ${calledRoutine} with args ${args}`);
+        console.log(
+          `@call Calling routine at ${calledRoutine} with args ${args}`,
+        );
         this.stack.push(this.pc);
-        this.pc = operands[0];
+
+        this.currentContext = operands[0];
+        let newPC = this.currentContext;
+        const localVarCount = this.memory.readUInt8(this.currentContext);
+        newPC++;
+        for (
+          let operandIndex = 1;
+          operandIndex < operandTypes.length;
+          operandIndex++
+        ) {
+          this.memory.writeUint16BE(operands[operandIndex]);
+          newPC += 2;
+        }
       },
       "VAR:1": () => {
         /* call_vs */
         let calledRoutine = operands[0].toString(16);
         let args = operands.slice(1).map((a) => a.toString(16));
-        console.log(`@call Calling routine at ${calledRoutine} with args ${args}`);
+        console.log(
+          `@call Calling routine at ${calledRoutine} with args ${args}`,
+        );
         this.stack.push(this.pc);
         this.pc = operands[0];
       },
@@ -605,7 +673,7 @@ class ZMachine {
         const buf = this.memory.slice(this.pc + offset, this.pc + offset + 1);
         offset += 1;
         let varNum = buf.readUInt8(0);
-        operands.push(this.globalVariables.get(varNum) || 0);
+        operands.push(this.getVariableValue(varNum) || 0);
       } else if (type == "LARGE_CONST") {
         const buf = this.memory.slice(this.pc + offset, this.pc + offset + 2);
         offset += 2;
