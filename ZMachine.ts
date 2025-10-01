@@ -226,367 +226,6 @@ class ZMachine {
   }
 
   executeInstruction() {
-    const handlers = {
-      "2OP:0": () => {
-        /* nop */
-        console.log("NOP executed");
-      },
-      "2OP:1": () => {
-        /* je a b ?(label) */
-      },
-      "2OP:2": () => {
-        /* jl a b ?(label) */
-      },
-      "2OP:3": () => {
-        /* jg a b ?(label) */
-      },
-      "2OP:4": () => {
-        /* dec_chk (variable) value ?(label) */
-      },
-      "2OP:5": () => {
-        /* inc_chk (variable) value ?(label) */
-      },
-      "2OP:6": () => {
-        /* jin obj1 obj2 ?(label) */
-      },
-      "2OP:7": () => {
-        /* test bitmap flags ?(label) */
-      },
-      "2OP:8": () => {
-        /* or a b -> (result) */
-      },
-      "2OP:9": () => {
-        /* and a b -> (result) */
-      },
-      "2OP:10": () => {
-        /* test_attr object attribute ?(label) */
-      },
-      "2OP:11": () => {
-        /* set_attr object attribute */
-      },
-      "2OP:12": () => {
-        /* clear_attr object attribute */
-      },
-      "2OP:13": () => {
-        //        console.log(`@store ${operands[1]} -> ${operands[0]}`);
-        this.setVariableValue(operands[0], operands[1]);
-      },
-      "2OP:14": () => {
-        /* insert_obj object destination */
-      },
-      "2OP:15": () => {
-        /* loadw array word-index -> (result) */
-        console.log("@loadw");
-      },
-      "2OP:16": () => {
-        /* loadb array byte-index -> (result) */
-      },
-      "2OP:17": () => {
-        /* get_prop object property -> (result) */
-      },
-      "2OP:18": () => {
-        /* get_prop_addr object property -> (result) */
-      },
-      "2OP:19": () => {
-        /* get_next_prop object property -> (result) */
-      },
-      "2OP:20": () => {
-        /* add a b -> (result) */
-      },
-      "2OP:21": () => {
-        /* sub a b -> (result) */
-      },
-      "2OP:22": () => {
-        /* mul a b -> (result) */
-      },
-      "2OP:23": () => {
-        /* div a b -> (result) */
-      },
-      "2OP:24": () => {
-        /* mod a b -> (result) */
-      },
-      "2OP:25": () => {
-        /* call_2s routine arg1 -> (result) */
-      },
-      "2OP:26": () => {
-        /* call_2n routine arg1 */
-      },
-      "2OP:27": () => {
-        /* set_colour foreground background */
-      },
-      "2OP:28": () => {
-        /* throw value stack-frame */
-      },
-
-      "1OP:0": () => {
-        /* jz value ?(label) */
-      },
-      "1OP:1": () => {
-        /* get_sibling object -> (result) */
-      },
-      "1OP:2": () => {
-        /* get_child object -> (result) */
-      },
-      "1OP:3": () => {
-        /* get_parent object -> (result) */
-      },
-      "1OP:4": () => {
-        /* get_prop_len object property -> (result) */
-      },
-      "1OP:5": () => {
-        /* inc (variable) */
-      },
-      "1OP:6": () => {
-        /* dec (variable) */
-      },
-      "1OP:7": () => {
-        /* print_addr string-address */
-      },
-      "1OP:8": () => {
-        /* call_1s routine -> (result) */
-      },
-      "1OP:9": () => {
-        /* remove_obj object */
-      },
-      "1OP:10": () => {
-        /* print_obj object */
-      },
-      "1OP:11": () => {
-        /* ret (value) */
-      },
-      "1OP:12": () => {
-        /* jump label */
-      },
-      "1OP:13": () => {
-        /* print_paddr packed-address */
-        //        console.log(`@print_paddr ${operands[0].toString(16)}`);
-        const stringAddr = this.getGlobalVariableValue(operands[0]) * 2;
-        const origPC = this.pc;
-        this.pc = stringAddr;
-        this.print();
-        this.pc = origPC;
-      },
-      "1OP:14": () => {
-        /* load (variable) -> (result) */
-      },
-
-      "0OP:0": () => {
-        /* rtrue */
-      },
-      "0OP:1": () => {
-        /* rfalse */
-      },
-      "0OP:2": () => {
-        /* print */
-        this.print();
-      },
-      "0OP:3": () => {
-        /* nop */
-      },
-      "0OP:4": () => {
-        /* save (string) -> (result) */
-      },
-      "0OP:5": () => {
-        /* restore (string) -> (result) */
-      },
-      "0OP:6": () => {
-        /* restart */
-      },
-      "0OP:7": () => {
-        /* quit */
-      },
-      "0OP:8": () => {
-        /* new_line */
-      },
-      "0OP:9": () => {
-        /* show_status */
-      },
-      "0OP:10": () => {
-        /* verify (string) -> (result) */
-      },
-      "0OP:11": () => {
-        /* extended opcode */
-      },
-      "0OP:12": () => {
-        console.log("@show_status");
-      },
-      "0OP:13": () => {
-        /* verify */
-      },
-      "0OP:15": () => {
-        /* piracy */
-      },
-
-      "EXTENDED:0": () => {
-        /* call_vs2 routine arg1 arg2 -> (result) */
-      },
-      "EXTENDED:1": () => {
-        /* call_vn2 routine arg1 arg2 */
-      },
-      "EXTENDED:2": () => {
-        /* call_vs routine arg1 -> (result) */
-      },
-      "EXTENDED:3": () => {
-        /* call_vn routine arg1 */
-      },
-      "EXTENDED:4": () => {
-        /* tokenise (string) parse-buffer parse-buffer-length -> (result) */
-      },
-      "EXTENDED:5": () => {
-        /* encode_text (string) -> (result) */
-      },
-      "EXTENDED:6": () => {
-        /* copy_table source destination length */
-      },
-      "EXTENDED:7": () => {
-        /* print_unicode (string) */
-      },
-      "EXTENDED:8": () => {
-        /* check_unicode (string) -> (result) */
-      },
-
-      "VAR:0": () => {
-        /* call / call_vn */
-        if (!this.memory) {
-          console.error("Memory not loaded");
-          return;
-        }
-        let calledRoutine = operands[0].toString(16);
-        let args = operands.slice(1).map((a) => a.toString(16));
-        console.log(
-          `@call Calling routine at ${calledRoutine} with args ${args}`,
-        );
-        // push pc already advanced past CALL and arguments
-        this.stack.push(this.pc);
-
-        // set current context for variables
-        this.currentContext = operands[0];
-        let newPC = this.currentContext;
-        // write local variables and skip PC past them
-        const localVarCount = this.memory.readUInt8(this.currentContext);
-        newPC++;
-        for (
-          let operandIndex = 1;
-          operandIndex < operandTypes.length;
-          operandIndex++
-        ) {
-          this.memory.writeUint16BE(
-            operands[operandIndex],
-            this.currentContext + 1 + 2 * (operandIndex - 1),
-          );
-          newPC += 2;
-        }
-      },
-      "VAR:1": () => {
-        /* call_vs */
-        let calledRoutine = operands[0].toString(16);
-        let args = operands.slice(1).map((a) => a.toString(16));
-        console.log(
-          `@call Calling routine at ${calledRoutine} with args ${args}`,
-        );
-        this.stack.push(this.pc);
-        this.pc = operands[0];
-      },
-      "VAR:2": () => {
-        /* storew array word-index value */
-      },
-      "VAR:3": () => {
-        /* storeb array byte-index value */
-      },
-      "VAR:4": () => {
-        /* put_prop object property value */
-      },
-      "VAR:5": () => {
-        /* sread (text-buffer) parse-buffer parse-buffer-length */
-        const rl = createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-
-        rl.question("", () => {
-          rl.close(); // close the interface when done
-        });
-      },
-      "VAR:6": () => {
-        /* print_char char */
-      },
-      "VAR:7": () => {
-        /* print_num number */
-      },
-      "VAR:8": () => {
-        /* random range -> (result) */
-      },
-      "VAR:9": () => {
-        /* push value */
-      },
-      "VAR:10": () => {
-        /* pull (variable) */
-      },
-      "VAR:11": () => {
-        /* call_vn routine ... */
-      },
-      "VAR:12": () => {
-        /* call_vs routine ... -> (result) */
-      },
-      "VAR:13": () => {
-        /* set_font font */
-      },
-      "VAR:14": () => {
-        /* draw_picture picture */
-      },
-      "VAR:15": () => {
-        /* picture_data picture -> (result) */
-      },
-      "VAR:16": () => {
-        /* erase_picture */
-      },
-      "VAR:17": () => {
-        /* set_margins left right */
-      },
-      "VAR:18": () => {
-        /* save_game (string) -> (result) */
-      },
-      "VAR:19": () => {
-        /* restore_game (string) -> (result) */
-      },
-      "VAR:20": () => {
-        /* restart_game */
-      },
-      "VAR:21": () => {
-        /* restore_undo */
-      },
-      "VAR:22": () => {
-        /* print_unicode_char unicode-char */
-      },
-      "VAR:23": () => {
-        /* print_unicode_string unicode-string */
-      },
-      "VAR:24": () => {
-        /* get_wind_prop window property -> (result) */
-      },
-      "VAR:25": () => {
-        /* set_wind_prop window property value */
-      },
-      "VAR:26": () => {
-        /* split_window lines */
-      },
-      "VAR:27": () => {
-        /* set_window window */
-      },
-      "VAR:28": () => {
-        /* erase_window window */
-      },
-      "VAR:29": () => {
-        /* create_window lines attributes -> (result) */
-      },
-      "VAR:30": () => {
-        /* move_window window lines */
-      },
-      "VAR:31": () => {
-        /* window_size window -> (result) */
-      },
-    };
-
     if (!this.memory) {
       console.error("Memory not loaded");
       return;
@@ -605,13 +244,109 @@ class ZMachine {
             ? "2OP"
             : "VAR";
 
-    const handlerKey = `${opcodeCategory}:${opcodeNumber}`;
-    const handler = (handlers as Record<string, () => void>)[handlerKey];
-    if (handler) {
-      handler();
-    } else {
-      console.error(`No handler for opcode ${handlerKey}`);
+    this.executeOpcode(opcodeCategory, opcodeNumber, operands, operandTypes);
+  }
+
+  private executeOpcode(
+    category: string,
+    opcode: number,
+    operands: number[],
+    operandTypes: string[],
+  ) {
+    const key = `${category}:${opcode}`;
+
+    // 2OP opcodes
+    if (category === "2OP") {
+      switch (opcode) {
+        case 0:
+          console.log("NOP executed");
+          return;
+        case 13: // store
+          this.setVariableValue(operands[0], operands[1]);
+          return;
+        case 15: // loadw
+          console.log("@loadw");
+          return;
+      }
     }
+
+    // 1OP opcodes
+    if (category === "1OP") {
+      switch (opcode) {
+        case 13: // print_paddr
+          const stringAddr = this.getGlobalVariableValue(operands[0]) * 2;
+          const origPC = this.pc;
+          this.pc = stringAddr;
+          this.print();
+          this.pc = origPC;
+          return;
+      }
+    }
+
+    // 0OP opcodes
+    if (category === "0OP") {
+      switch (opcode) {
+        case 2: // print
+          this.print();
+          return;
+        case 12: // show_status
+          console.log("@show_status");
+          return;
+      }
+    }
+
+    // VAR opcodes
+    if (category === "VAR") {
+      switch (opcode) {
+        case 0: // call / call_vn
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
+          }
+          let calledRoutine = operands[0].toString(16);
+          let args = operands.slice(1).map((a) => a.toString(16));
+          console.log(
+            `@call Calling routine at ${calledRoutine} with args ${args}`,
+          );
+          this.stack.push(this.pc);
+          this.currentContext = operands[0];
+          let newPC = this.currentContext;
+          const localVarCount = this.memory.readUInt8(this.currentContext);
+          newPC++;
+          for (
+            let operandIndex = 1;
+            operandIndex < operandTypes.length;
+            operandIndex++
+          ) {
+            this.memory.writeUint16BE(
+              operands[operandIndex],
+              this.currentContext + 1 + 2 * (operandIndex - 1),
+            );
+            newPC += 2;
+          }
+          return;
+        case 1: // call_vs
+          calledRoutine = operands[0].toString(16);
+          args = operands.slice(1).map((a) => a.toString(16));
+          console.log(
+            `@call Calling routine at ${calledRoutine} with args ${args}`,
+          );
+          this.stack.push(this.pc);
+          this.pc = operands[0];
+          return;
+        case 5: // sread
+          const rl = createInterface({
+            input: process.stdin,
+            output: process.stdout,
+          });
+          rl.question("", () => {
+            rl.close();
+          });
+          return;
+      }
+    }
+
+    console.error(`No handler for opcode ${key}`);
   }
 
   private decodeInstruction(): {
