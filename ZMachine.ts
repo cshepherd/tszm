@@ -1,6 +1,7 @@
 // Node-compatible Z-machine file I/O (TypeScript)
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
 import { readFile } from "fs/promises";
+import { createInterface } from "readline";
 
 type zMachineHeader = {
   version: number; // target z-machine version
@@ -147,7 +148,7 @@ class ZMachine {
 
     const memoryAddress =
       this.header.globalVariablesAddress + (variableNumber - 16) * 2;
-    return this.memory?.readInt16BE(memoryAddress);
+    return this.memory?.readUInt16BE(memoryAddress);
   }
 
   setGlobalVariableValue(variableNumber: number, value: number): any {
@@ -158,19 +159,19 @@ class ZMachine {
 
     const memoryAddress =
       this.header.globalVariablesAddress + (variableNumber - 16) * 2;
-    return this.memory?.writeInt16BE(value);
+    return this.memory?.writeUInt16BE(memoryAddress, value);
   }
 
   getLocalVariableValue(variableNumber: number): any {
     const memLocation = this.currentContext + (variableNumber - 1) * 2;
 
-    return this.memory?.readInt16BE(memLocation);
+    return this.memory?.readUInt16BE(memLocation);
   }
 
   setLocalVariableValue(variableNumber: number, value: number): any {
     const memLocation = this.currentContext + (variableNumber - 1) * 2;
 
-    return this.memory?.writeInt16BE(value);
+    return this.memory?.writeUInt16BE(memLocation, value);
   }
 
   getVariableValue(variableNumber: number): any {
@@ -215,7 +216,7 @@ class ZMachine {
     this.pc += offset;
   }
 
-  print(abbreviations:boolean = true) {
+  print(abbreviations: boolean = true) {
     let fullString = this.decodeZSCII(abbreviations);
     if (this.inputOutputDevice) {
       this.inputOutputDevice.writeString(fullString);
@@ -267,7 +268,7 @@ class ZMachine {
         /* clear_attr object attribute */
       },
       "2OP:13": () => {
-        console.log(`@store ${operands[1]} -> ${operands[0]}`);
+        //        console.log(`@store ${operands[1]} -> ${operands[0]}`);
         this.setVariableValue(operands[0], operands[1]);
       },
       "2OP:14": () => {
@@ -358,13 +359,11 @@ class ZMachine {
       },
       "1OP:13": () => {
         /* print_paddr packed-address */
-        if(operands[0]<0) {
-          operands[0] = 65536 - operands[0];
-        }
+        //        console.log(`@print_paddr ${operands[0].toString(16)}`);
+        const stringAddr = this.getGlobalVariableValue(operands[0]) * 2;
         const origPC = this.pc;
-        this.pc = operands[0];
-        console.log(`@print_paddr Packed address: ${operands[0]}`);
-        this.print(false);
+        this.pc = stringAddr;
+        this.print();
         this.pc = origPC;
       },
       "1OP:14": () => {
@@ -471,7 +470,10 @@ class ZMachine {
           operandIndex < operandTypes.length;
           operandIndex++
         ) {
-          this.memory.writeUint16BE(operands[operandIndex], this.currentContext + 1 + (2*(operandIndex-1)) );
+          this.memory.writeUint16BE(
+            operands[operandIndex],
+            this.currentContext + 1 + 2 * (operandIndex - 1),
+          );
           newPC += 2;
         }
       },
@@ -496,6 +498,14 @@ class ZMachine {
       },
       "VAR:5": () => {
         /* sread (text-buffer) parse-buffer parse-buffer-length */
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+
+        rl.question("", () => {
+          rl.close(); // close the interface when done
+        });
       },
       "VAR:6": () => {
         /* print_char char */
@@ -577,7 +587,7 @@ class ZMachine {
       },
     };
 
-    console.log(`Executing instruction at PC: ${this.pc.toString(16)}`);
+    //    console.log(`Executing instruction at PC: ${this.pc.toString(16)}`);
     let opcodeNumber: number | null = null;
     let operandTypes: string[] = [];
     let operandCount: number = 0;
@@ -590,7 +600,7 @@ class ZMachine {
       return;
     }
     const firstByte = this.memory.readUInt8(this.pc);
-    console.log(`firstByte: ${firstByte.toString(16)}`);
+    //    console.log(`firstByte: ${firstByte.toString(16)}`);
 
     if (firstByte == 0xbe) {
       // v5+ extended form
@@ -679,42 +689,45 @@ class ZMachine {
     } else if (opcodeForm == "SHORT" && operandCount == 0) {
       // no extra bytes
     } else if (opcodeForm == "SHORT" && operandCount == 1) {
-      offset += 1; // short form with 1 operand has no extra bytes
+      offset += 0; // short form with 1 operand has no extra bytes
     } else if (opcodeForm == "LONG") {
       offset += 0; // long form has no extra bytes
     }
 
     for (let type of operandTypes) {
       if (type == "SMALL_CONST") {
-        operands.push(this.memory.readUInt8(this.pc + offset));
+        const operand = this.memory.readUInt8(this.pc + offset);
+        operands.push(operand);
         offset += 1;
       } else if (type == "VARIABLE") {
-        let varNum = this.memory.readUInt8(this.pc + offset);
+        const operand = this.memory.readUInt8(this.pc + offset);
+        operands.push(operand);
         offset += 1;
-        operands.push(this.getVariableValue(varNum) || 0);
       } else if (type == "LARGE_CONST") {
-        operands.push(this.memory.readUInt16BE(this.pc + offset));
+        const operand = this.memory.readUInt16BE(this.pc + offset);
+        operands.push(operand);
         offset += 2;
       }
     }
     this.advancePC(offset);
-    console.log(`Opcode form: ${opcodeForm}, Opcode number: ${opcodeNumber}`);
-    console.log(`Executed opcode ${opcodeNumber} with operands ${operands.join(", ")}`);
+    //    console.log(`Opcode form: ${opcodeForm}, Opcode number: ${opcodeNumber}`);
+    //    console.log(`Executing opcode ${opcodeNumber} with operands ${operands.join(", ")}`);
+    //    console.log(operandTypes);
 
     // dispatch decoded opcode to handler
-    let firstPart = 'VAR';
-    if( operandCount == 1 ) {
-      firstPart = '1OP';
-    } else if ( operandCount == 0 ) {
-      firstPart = '0OP';
-    } else if ( operandCount == 2 ) {
-      firstPart = '2OP';
+    let firstPart = "VAR";
+    if (operandCount == 1) {
+      firstPart = "1OP";
+    } else if (operandCount == 0) {
+      firstPart = "0OP";
+    } else if (operandCount == 2) {
+      firstPart = "2OP";
     }
-    if( opcodeForm == 'EXTEDNED' ) {
-      firstPart = 'EXT';
+    if (opcodeForm == "EXTEDNED") {
+      firstPart = "EXT";
     }
     const handlerKey = `${firstPart}:${opcodeNumber}`;
-    console.log(handlerKey);
+    //    console.log(handlerKey);
     const handler = (handlers as Record<string, () => void>)[handlerKey];
     if (handler) {
       handler();
@@ -723,7 +736,7 @@ class ZMachine {
     }
   }
 
-  decodeZSCII(abbreviations:boolean=true): string {
+  decodeZSCII(abbreviations: boolean = true): string {
     const A0 = "abcdefghijklmnopqrstuvwxyz";
     const A1 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const A2 = " \n0123456789.,!?_#'\"/\\-:()";
@@ -755,13 +768,16 @@ class ZMachine {
       }
 
       for (let zchar of zchars) {
-        if( abbrev1 > -1 ) {
-          if(this.header) {
+        if (abbrev1 > -1) {
+          if (this.header) {
             abbrev2 = zchar;
 
-            const abbreviationNumber = 32*abbrev1 + abbrev2;
+            const abbreviationNumber = 32 * abbrev1 + abbrev2;
             const origPC = this.pc;
-            this.pc = (this.memory.readUint16BE(this.header?.abbreviationsAddress + (abbreviationNumber*2)))*2;
+            this.pc =
+              this.memory.readUint16BE(
+                this.header?.abbreviationsAddress + abbreviationNumber * 2,
+              ) * 2;
             result += this.decodeZSCII(false);
             this.pc = origPC;
 
@@ -771,11 +787,11 @@ class ZMachine {
           }
         }
         if (zchar == 0) {
-          result += ' ';
+          result += " ";
         }
         if ([1, 2, 3].includes(zchar)) {
-          if(abbreviations) {
-            abbrev1 = zchar-1;
+          if (abbreviations) {
+            abbrev1 = zchar - 1;
             continue;
           }
         }
@@ -793,7 +809,7 @@ class ZMachine {
           currentTable = 2;
         }
       }
-    } while( !isLast );
+    } while (!isLast);
 
     return result;
   }
