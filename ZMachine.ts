@@ -587,153 +587,119 @@ class ZMachine {
       },
     };
 
-    //    console.log(`Executing instruction at PC: ${this.pc.toString(16)}`);
-    let opcodeNumber: number | null = null;
-    let operandTypes: string[] = [];
-    let operandCount: number = 0;
-    let opcodeForm: string | null = null;
-    let operands: any[] = [];
-
-    // Fetch the first instruction byte synchronously from memory
     if (!this.memory) {
       console.error("Memory not loaded");
       return;
     }
-    const firstByte = this.memory.readUInt8(this.pc);
-    //    console.log(`firstByte: ${firstByte.toString(16)}`);
 
-    if (firstByte == 0xbe) {
-      // v5+ extended form
-      opcodeForm = "EXTENDED";
-      // opcode number at pc+1
-      opcodeNumber = this.memory.readUInt8(this.pc + 1);
-      // operand types at pc+2
-      let operandTypesByte = this.memory.readUInt8(this.pc + 2);
-      for (let i = 6; i > -1; i -= 2) {
-        let typeBits = (operandTypesByte & 0b11000000) >> i;
-        if (typeBits == 0b11) {
-          break; // no more operands
-        } else if (typeBits == 0b01) {
-          operandTypes.push("SMALL_CONST");
-        } else if (typeBits == 0b10) {
-          operandTypes.push("VARIABLE");
-        } else {
-          operandTypes.push("LARGE_CONST");
-        }
-        operandTypesByte <<= 2;
-      }
-    } else {
-      let formDiscriminator = (firstByte & 0b11000000) >> 6;
-      if (formDiscriminator == 0b11) {
-        opcodeForm = "VAR";
-        opcodeNumber = firstByte & 0b00011111;
-        if ((firstByte & 0b00100000) == 0b0) {
-          operandCount = 2;
-        } else {
-          // operand types byte at pc+1
-          let operandTypesByte = this.memory.readUInt8(this.pc + 1);
-          for (let i = 6; i > -1; i -= 2) {
-            let typeBits = (operandTypesByte & 0b11000000) >> i;
-            if (typeBits == 0b11) {
-              break; // no more operands
-            } else if (typeBits == 0b01) {
-              operandTypes.push("SMALL_CONST");
-            } else if (typeBits == 0b10) {
-              operandTypes.push("VARIABLE");
-            } else {
-              operandTypes.push("LARGE_CONST");
-            }
-          }
-          operandCount = operandTypes.length;
-        }
-      } else if (formDiscriminator == 0b10) {
-        // short form: always 1OP or 0OP
-        opcodeForm = "SHORT";
-        opcodeNumber = firstByte & 0b00001111;
-        if ((firstByte & 0b00110000) >> 4 == 0b11) {
-          operandCount = 0;
-        } else {
-          operandCount = 1;
-          if ((firstByte & 0b00110000) >> 4 == 0b00) {
-            operandTypes.push("LARGE_CONST");
-          } else if ((firstByte & 0b00110000) >> 4 == 0b01) {
-            operandTypes.push("SMALL_CONST");
-          } else {
-            operandTypes.push("VARIABLE");
-          }
-        }
-      } else {
-        // long form: always 2OP
-        opcodeForm = "LONG";
-        operandCount = 2;
-        opcodeNumber = firstByte & 0b00011111;
-        if ((firstByte & 0b00100000) == 0b0) {
-          operandTypes.push("SMALL_CONST");
-        } else {
-          operandTypes.push("VARIABLE");
-        }
-        if ((firstByte & 0b00010000) == 0b0) {
-          operandTypes.push("SMALL_CONST");
-        } else {
-          operandTypes.push("VARIABLE");
-        }
-      }
-    }
+    const { opcodeNumber, operandTypes, operands, bytesRead } =
+      this.decodeInstruction();
+    this.advancePC(bytesRead);
 
-    // Fetch operands based on operandTypes
-    let offset = 1; // already read first byte
-    if (opcodeForm == "EXTENDED") {
-      offset += 2; // extended form has 2 extra bytes (opcode + operand types)
-    } else if (opcodeForm == "VAR" && operandCount > 2) {
-      offset += 1; // var form with more than 2 operands has an extra operand types byte
-    } else if (opcodeForm == "SHORT" && operandCount == 0) {
-      // no extra bytes
-    } else if (opcodeForm == "SHORT" && operandCount == 1) {
-      offset += 0; // short form with 1 operand has no extra bytes
-    } else if (opcodeForm == "LONG") {
-      offset += 0; // long form has no extra bytes
-    }
+    const opcodeCategory =
+      operandTypes.length === 0
+        ? "0OP"
+        : operandTypes.length === 1
+          ? "1OP"
+          : operandTypes.length === 2
+            ? "2OP"
+            : "VAR";
 
-    for (let type of operandTypes) {
-      if (type == "SMALL_CONST") {
-        const operand = this.memory.readUInt8(this.pc + offset);
-        operands.push(operand);
-        offset += 1;
-      } else if (type == "VARIABLE") {
-        const operand = this.memory.readUInt8(this.pc + offset);
-        operands.push(operand);
-        offset += 1;
-      } else if (type == "LARGE_CONST") {
-        const operand = this.memory.readUInt16BE(this.pc + offset);
-        operands.push(operand);
-        offset += 2;
-      }
-    }
-    this.advancePC(offset);
-    //    console.log(`Opcode form: ${opcodeForm}, Opcode number: ${opcodeNumber}`);
-    //    console.log(`Executing opcode ${opcodeNumber} with operands ${operands.join(", ")}`);
-    //    console.log(operandTypes);
-
-    // dispatch decoded opcode to handler
-    let firstPart = "VAR";
-    if (operandCount == 1) {
-      firstPart = "1OP";
-    } else if (operandCount == 0) {
-      firstPart = "0OP";
-    } else if (operandCount == 2) {
-      firstPart = "2OP";
-    }
-    if (opcodeForm == "EXTEDNED") {
-      firstPart = "EXT";
-    }
-    const handlerKey = `${firstPart}:${opcodeNumber}`;
-    //    console.log(handlerKey);
+    const handlerKey = `${opcodeCategory}:${opcodeNumber}`;
     const handler = (handlers as Record<string, () => void>)[handlerKey];
     if (handler) {
       handler();
     } else {
       console.error(`No handler for opcode ${handlerKey}`);
     }
+  }
+
+  private decodeInstruction(): {
+    opcodeNumber: number;
+    operandTypes: string[];
+    operands: number[];
+    bytesRead: number;
+  } {
+    if (!this.memory) {
+      throw new Error("Memory not loaded");
+    }
+
+    const firstByte = this.memory.readUInt8(this.pc);
+    let offset = 1;
+    let opcodeNumber: number;
+    let operandTypes: string[] = [];
+
+    // Extended form (0xBE)
+    if (firstByte === 0xbe) {
+      opcodeNumber = this.memory.readUInt8(this.pc + 1);
+      operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 2));
+      offset = 3;
+    }
+    // Variable form (top 2 bits = 11)
+    else if ((firstByte & 0b11000000) === 0b11000000) {
+      opcodeNumber = firstByte & 0b00011111;
+      if ((firstByte & 0b00100000) === 0) {
+        // VAR with 2OP - operand types encoded in bits 4-5
+        operandTypes = [
+          (firstByte & 0b01000000) ? "VARIABLE" : "SMALL_CONST",
+          (firstByte & 0b00100000) ? "VARIABLE" : "SMALL_CONST",
+        ];
+      } else {
+        // VAR with operand types byte
+        operandTypes = this.parseOperandTypes(
+          this.memory.readUInt8(this.pc + 1),
+        );
+        offset = 2;
+      }
+    }
+    // Short form (top 2 bits = 10)
+    else if ((firstByte & 0b11000000) === 0b10000000) {
+      opcodeNumber = firstByte & 0b00001111;
+      const operandTypeBits = (firstByte & 0b00110000) >> 4;
+      if (operandTypeBits !== 0b11) {
+        operandTypes = [
+          ["LARGE_CONST", "SMALL_CONST", "VARIABLE"][operandTypeBits],
+        ];
+      }
+    }
+    // Long form (top 2 bits = 00 or 01)
+    else {
+      opcodeNumber = firstByte & 0b00011111;
+      operandTypes = [
+        (firstByte & 0b01000000) ? "VARIABLE" : "SMALL_CONST",
+        (firstByte & 0b00100000) ? "VARIABLE" : "SMALL_CONST",
+      ];
+    }
+
+    // Fetch operands
+    const operands: number[] = [];
+    for (const type of operandTypes) {
+      if (type === "LARGE_CONST") {
+        operands.push(this.memory.readUInt16BE(this.pc + offset));
+        offset += 2;
+      } else {
+        operands.push(this.memory.readUInt8(this.pc + offset));
+        offset += 1;
+      }
+    }
+
+    return { opcodeNumber, operandTypes, operands, bytesRead: offset };
+  }
+
+  private parseOperandTypes(typeByte: number): string[] {
+    const types: string[] = [];
+    for (let shift = 6; shift >= 0; shift -= 2) {
+      const typeBits = (typeByte >> shift) & 0b11;
+      if (typeBits === 0b11) break;
+      types.push(
+        typeBits === 0b00
+          ? "LARGE_CONST"
+          : typeBits === 0b01
+            ? "SMALL_CONST"
+            : "VARIABLE",
+      );
+    }
+    return types;
   }
 
   decodeZSCII(abbreviations: boolean = true): string {
