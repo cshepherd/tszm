@@ -28,204 +28,289 @@ async function main() {
     await zm.load();
     console.log("Header:", zm.getHeader());
     console.log("Starting execution...");
-    await zm.executeInstruction();
 
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-
-    await zm.executeInstruction();
-    await zm.executeInstruction();
-    await zm.executeInstruction();
+    for(;;) {
+      await zm.executeInstruction();
+    }
 /*
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
     await zm.executeInstruction();
     await zm.executeInstruction();
     await zm.executeInstruction();

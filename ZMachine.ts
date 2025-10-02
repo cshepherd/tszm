@@ -21,15 +21,6 @@ type zMachineHeader = {
   alphabetIdentifier: number; // alphabet identifier
 };
 
-type zMachineObject = {
-  id: number; // object id
-  attributes: Buffer; // object attributes (32 bytes)
-  parent: number; // parent object id
-  sibling: number; // sibling object id
-  child: number; // child object id
-  propertyTableAddress: number; // property table address
-};
-
 class ZMachine {
   private pc: number = 0; // current program counter
   private fileHandle: any;
@@ -324,6 +315,36 @@ class ZMachine {
             }
           }
           return;
+        case 3: // jg (jump if greater)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jg");
+            return;
+          }
+          // Branch if operand[0] > operand[1] (signed comparison)
+          const jgValue1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const jgValue2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const jgCondition = jgValue1 > jgValue2;
+          const jgShouldBranch = jgCondition === branchOnTrue;
+
+          if (jgShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const returnStoreVar = this.stack.pop();
+              const returnPC = this.stack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 11: // set_attr
           if (!this.memory || !this.header) {
             console.error("Memory or header not loaded");
@@ -360,6 +381,44 @@ class ZMachine {
           this.memory.writeUInt8(
             setAttrNewByte,
             setAttrObjectAddress + setAttrByteIndex,
+          );
+          return;
+        case 12: // clear_attr
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Clear an attribute on an object
+          const clearAttrObjectId = operands[0];
+          const clearAttrNum = operands[1];
+
+          // Calculate object address
+          const clearAttrPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const clearAttrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const clearAttrObjectAddress =
+            this.header.objectTableAddress +
+            clearAttrPropertyDefaultSize +
+            (clearAttrObjectId - 1) * clearAttrObjectEntrySize;
+
+          // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
+          const clearAttrByteCount = this.header.version <= 3 ? 4 : 6;
+          const clearAttrByteIndex = Math.floor(clearAttrNum / 8);
+          const clearAttrBitIndex = 7 - (clearAttrNum % 8); // MSB is attribute 0
+
+          if (clearAttrByteIndex >= clearAttrByteCount) {
+            console.error(`Invalid attribute number ${clearAttrNum}`);
+            return;
+          }
+
+          // Read, clear bit, write back
+          const clearAttrByte = this.memory.readUInt8(
+            clearAttrObjectAddress + clearAttrByteIndex,
+          );
+          const clearAttrNewByte = clearAttrByte & ~(1 << clearAttrBitIndex);
+          this.memory.writeUInt8(
+            clearAttrNewByte,
+            clearAttrObjectAddress + clearAttrByteIndex,
           );
           return;
         case 13: // store
@@ -493,6 +552,31 @@ class ZMachine {
             this.setVariableValue(storeVariable, getPropValue);
           }
           return;
+        case 23: // div
+          // Signed 16-bit division
+          const divDividend =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const divDivisor =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          if (divDivisor === 0) {
+            console.error("Division by zero");
+            return;
+          }
+
+          // Perform signed division and truncate towards zero
+          let divResult = Math.trunc(divDividend / divDivisor);
+
+          // Convert back to unsigned 16-bit
+          if (divResult < 0) {
+            divResult = divResult + 65536;
+          }
+          divResult = divResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, divResult);
+          }
+          return;
       }
     }
 
@@ -521,9 +605,8 @@ class ZMachine {
                 }
               }
             } else {
-              // Normal branch: offset is relative to current PC, minus 2
-              const newPC = this.pc + branchOffset - 2;
-              this.pc = newPC;
+              // Normal branch: offset is relative to current PC
+              this.pc = this.pc + branchOffset;
             }
           }
           return;
@@ -595,10 +678,10 @@ class ZMachine {
           return;
         case 12: // jump
           // Unconditional jump with signed 16-bit offset
-          // Offset is relative to PC after the instruction (minus 2 per spec)
+          // Offset is relative to PC after the instruction
           const jumpOffset =
             operands[0] > 32767 ? operands[0] - 65536 : operands[0];
-          this.pc = this.pc + jumpOffset - 2;
+          this.pc = this.pc + jumpOffset;
           return;
         case 13: // print_paddr
           const stringAddr = operands[0] * 2;
