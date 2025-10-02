@@ -272,6 +272,40 @@ class ZMachine {
         case 0:
           console.log("NOP executed");
           return;
+        case 1: // je (jump if equal)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for je");
+            return;
+          }
+          // Branch if operand[0] equals any of operand[1..n]
+          // Note: In 2OP form, je only has 2 operands, but in VAR form it can have more
+          const jeTestValue = operands[0];
+          let jeCondition = false;
+          for (let i = 1; i < operands.length; i++) {
+            if (jeTestValue === operands[i]) {
+              jeCondition = true;
+              break;
+            }
+          }
+          const jeShouldBranch = jeCondition === branchOnTrue;
+
+          if (jeShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const returnStoreVar = this.stack.pop();
+              const returnPC = this.stack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 5: // inc_chk
           if (branchOffset === undefined || branchOnTrue === undefined) {
             console.error("Branch information missing for inc_chk");
@@ -291,6 +325,58 @@ class ZMachine {
           const shouldBranch = condition === branchOnTrue;
 
           if (shouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const returnStoreVar = this.stack.pop();
+              const returnPC = this.stack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
+        case 10: // test_attr
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for test_attr");
+            return;
+          }
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Test if object has attribute set
+          const objectId = operands[0];
+          const attributeNum = operands[1];
+
+          // Calculate object address
+          let propertyDefaultSize = this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          let objectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const objectAddress =
+            this.header.objectTableAddress +
+            propertyDefaultSize +
+            (objectId - 1) * objectEntrySize;
+
+          // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
+          const attrByteCount = this.header.version <= 3 ? 4 : 6;
+          const attrByteIndex = Math.floor(attributeNum / 8);
+          const attrBitIndex = 7 - (attributeNum % 8); // MSB is attribute 0
+
+          if (attrByteIndex >= attrByteCount) {
+            console.error(`Invalid attribute number ${attributeNum}`);
+            return;
+          }
+
+          const attrByte = this.memory.readUInt8(objectAddress + attrByteIndex);
+          const attrCondition = ((attrByte >> attrBitIndex) & 1) === 1;
+          const attrShouldBranch = attrCondition === branchOnTrue;
+
+          if (attrShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
               const returnStoreVar = this.stack.pop();
@@ -488,10 +574,10 @@ class ZMachine {
           this.pc = newPC;
           return;
         case 1: // call_vs
-          calledRoutine = operands[0].toString(16);
-          args = operands.slice(1).map((a) => a.toString(16));
+          const calledRoutineVs = operands[0].toString(16);
+          const argsVs = operands.slice(1).map((a) => a.toString(16));
           console.log(
-            `@call Calling routine at ${calledRoutine} with args ${args}`,
+            `@call Calling routine at ${calledRoutineVs} with args ${argsVs}`,
           );
           this.stack.push(this.pc);
           this.pc = operands[0];
