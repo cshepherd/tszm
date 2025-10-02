@@ -231,11 +231,11 @@ class ZMachine {
       return;
     }
 
-    const { opcodeNumber, operandTypes, operands, bytesRead, category } =
+    const { opcodeNumber, operandTypes, operands, bytesRead, category, storeVariable } =
       this.decodeInstruction();
     this.advancePC(bytesRead);
 
-    this.executeOpcode(category, opcodeNumber, operands, operandTypes);
+    this.executeOpcode(category, opcodeNumber, operands, operandTypes, storeVariable);
   }
 
   private executeOpcode(
@@ -243,6 +243,7 @@ class ZMachine {
     opcode: number,
     operands: number[],
     operandTypes: string[],
+    storeVariable?: number,
   ) {
     const key = `${category}:${opcode}`;
 
@@ -298,6 +299,7 @@ class ZMachine {
     if (category === "VAR") {
       switch (opcode) {
         case 0: // call / call_vn
+          console.log(`storeVariable -> ${storeVariable?.toString(16)}`)
           if (!this.memory || !this.header) {
             console.error("Memory or header not loaded");
             return;
@@ -365,6 +367,7 @@ class ZMachine {
     operands: number[];
     bytesRead: number;
     category: string;
+    storeVariable?: number;
   } {
     if (!this.memory) {
       throw new Error("Memory not loaded");
@@ -387,19 +390,11 @@ class ZMachine {
     else if ((firstByte & 0b11000000) === 0b11000000) {
       opcodeNumber = firstByte & 0b00011111;
       category = "VAR";
-      if ((firstByte & 0b00100000) === 0) {
-        // VAR with 2OP - operand types encoded in bits 4-5
-        operandTypes = [
-          firstByte & 0b01000000 ? "VARIABLE" : "SMALL_CONST",
-          firstByte & 0b00100000 ? "VARIABLE" : "SMALL_CONST",
-        ];
-      } else {
-        // VAR with operand types byte
-        operandTypes = this.parseOperandTypes(
-          this.memory.readUInt8(this.pc + 1),
-        );
-        offset = 2;
-      }
+      // VAR form always reads operand types from the next byte
+      operandTypes = this.parseOperandTypes(
+        this.memory.readUInt8(this.pc + 1),
+      );
+      offset = 2;
     }
     // Short form (top 2 bits = 10)
     else if ((firstByte & 0b11000000) === 0b10000000) {
@@ -436,13 +431,42 @@ class ZMachine {
       }
     }
 
+    // Check if this is a store instruction and read the store variable
+    let storeVariable: number | undefined;
+    const isStoreInstruction = this.isStoreInstruction(category, opcodeNumber);
+    if (isStoreInstruction) {
+      storeVariable = this.memory.readUInt8(this.pc + offset);
+      offset += 1;
+    }
+
     return {
       opcodeNumber,
       operandTypes,
       operands,
       bytesRead: offset,
       category,
+      storeVariable,
     };
+  }
+
+  private isStoreInstruction(category: string, opcode: number): boolean {
+    // List of store instructions by category
+    if (category === "VAR") {
+      return [0, 1, 7].includes(opcode); // call, call_vs, call_vn2
+    }
+    if (category === "2OP") {
+      return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(opcode); // or, and, loadw, loadb, etc.
+    }
+    if (category === "1OP") {
+      return [1, 2, 3, 4, 5, 6, 7, 8, 14, 15].includes(opcode); // get_sibling, get_child, get_parent, etc.
+    }
+    if (category === "0OP") {
+      return false; // No 0OP store instructions
+    }
+    if (category === "EXT") {
+      return [0, 1, 2, 3, 4, 9, 10, 19, 29].includes(opcode); // Extended store instructions
+    }
+    return false;
   }
 
   private parseOperandTypes(typeByte: number): string[] {
