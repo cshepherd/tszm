@@ -239,6 +239,8 @@ class ZMachine {
       bytesRead,
       category,
       storeVariable,
+      branchOffset,
+      branchOnTrue,
     } = this.decodeInstruction();
     this.advancePC(bytesRead);
 
@@ -248,6 +250,8 @@ class ZMachine {
       operands,
       operandTypes,
       storeVariable,
+      branchOffset,
+      branchOnTrue,
     );
   }
 
@@ -257,6 +261,8 @@ class ZMachine {
     operands: number[],
     operandTypes: string[],
     storeVariable?: number,
+    branchOffset?: number,
+    branchOnTrue?: boolean,
   ) {
     const key = `${category}:${opcode}`;
 
@@ -278,6 +284,34 @@ class ZMachine {
     // 1OP opcodes
     if (category === "1OP") {
       switch (opcode) {
+        case 0: // jz (jump if zero)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jz");
+            return;
+          }
+          const testValue = operands[0];
+          const condition = testValue === 0;
+          const shouldBranch = condition === branchOnTrue;
+
+          if (shouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              // Special values: return false or true
+              const returnValue = branchOffset;
+              const returnPC = this.stack.pop();
+              const returnStoreVar = this.stack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              // Normal branch: offset is relative to current PC, minus 2
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 6: // dec (decrement variable)
           const currentValue = this.getVariableValue(operands[0]);
           this.setVariableValue(operands[0], currentValue - 1);
@@ -402,6 +436,8 @@ class ZMachine {
     bytesRead: number;
     category: string;
     storeVariable?: number;
+    branchOffset?: number;
+    branchOnTrue?: boolean;
   } {
     if (!this.memory) {
       throw new Error("Memory not loaded");
@@ -487,6 +523,36 @@ class ZMachine {
       offset += 1;
     }
 
+    // Check if this is a branch instruction and read the branch information
+    let branchOffset: number | undefined;
+    let branchOnTrue: boolean | undefined;
+    const isBranchInstruction = this.isBranchInstruction(
+      category,
+      opcodeNumber,
+    );
+    if (isBranchInstruction) {
+      const branchByte = this.memory.readUInt8(this.pc + offset);
+      offset += 1;
+
+      // Bit 7: branch on true (1) or false (0)
+      branchOnTrue = (branchByte & 0b10000000) !== 0;
+
+      // Bit 6: 1 = 1-byte offset, 0 = 2-byte offset
+      if (branchByte & 0b01000000) {
+        // 1-byte offset: bits 5-0 contain the offset
+        branchOffset = branchByte & 0b00111111;
+      } else {
+        // 2-byte offset: bits 5-0 of first byte + second byte (14-bit signed)
+        const secondByte = this.memory.readUInt8(this.pc + offset);
+        offset += 1;
+        branchOffset = ((branchByte & 0b00111111) << 8) | secondByte;
+        // Sign extend from 14 bits to 32-bit signed integer
+        if (branchOffset & 0x2000) {
+          branchOffset = branchOffset - 0x4000; // Convert to negative value
+        }
+      }
+    }
+
     return {
       opcodeNumber,
       operandTypes,
@@ -494,7 +560,26 @@ class ZMachine {
       bytesRead: offset,
       category,
       storeVariable,
+      branchOffset,
+      branchOnTrue,
     };
+  }
+
+  private isBranchInstruction(category: string, opcode: number): boolean {
+    // List of branch instructions by category
+    if (category === "1OP") {
+      return [0, 1, 2].includes(opcode); // jz, get_sibling, get_child
+    }
+    if (category === "2OP") {
+      return [1, 2, 3, 4, 5, 6, 7, 10].includes(opcode); // je, jl, jg, dec_chk, inc_chk, jin, test, test_attr
+    }
+    if (category === "0OP") {
+      return [5, 6, 13, 15].includes(opcode); // save, restore, verify, piracy
+    }
+    if (category === "VAR") {
+      return [17, 19, 20].includes(opcode); // scan_table, check_arg_count, call_vn (v5+)
+    }
+    return false;
   }
 
   private isStoreInstruction(category: string, opcode: number): boolean {
