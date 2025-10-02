@@ -231,11 +231,23 @@ class ZMachine {
       return;
     }
 
-    const { opcodeNumber, operandTypes, operands, bytesRead, category, storeVariable } =
-      this.decodeInstruction();
+    const {
+      opcodeNumber,
+      operandTypes,
+      operands,
+      bytesRead,
+      category,
+      storeVariable,
+    } = this.decodeInstruction();
     this.advancePC(bytesRead);
 
-    this.executeOpcode(category, opcodeNumber, operands, operandTypes, storeVariable);
+    this.executeOpcode(
+      category,
+      opcodeNumber,
+      operands,
+      operandTypes,
+      storeVariable,
+    );
   }
 
   private executeOpcode(
@@ -281,16 +293,15 @@ class ZMachine {
         case 2: // print
           this.print();
           return;
-        case 12: // show_status
-          console.log("@show_status");
-          return;
-        case 187: // new_line
-          console.log("@new_line");
+        case 11: // new_line
           if (this.inputOutputDevice) {
             this.inputOutputDevice.writeString("\n");
           } else {
             console.log("\n");
           }
+          return;
+        case 12: // show_status
+          console.log("@show_status");
           return;
       }
     }
@@ -299,7 +310,7 @@ class ZMachine {
     if (category === "VAR") {
       switch (opcode) {
         case 0: // call / call_vn
-          console.log(`storeVariable -> ${storeVariable?.toString(16)}`)
+          console.log(`storeVariable -> ${storeVariable?.toString(16)}`);
           if (!this.memory || !this.header) {
             console.error("Memory or header not loaded");
             return;
@@ -319,22 +330,41 @@ class ZMachine {
           console.log(
             `@call Calling routine at ${calledRoutine} with args ${args}`,
           );
+
+          // Save return info on stack
           this.stack.push(this.pc);
+          if (storeVariable !== undefined) {
+            this.stack.push(storeVariable);
+          }
+
+          // Set up new routine context
           this.currentContext = routineAddress;
           let newPC = this.currentContext;
-          const localVarCount = this.memory.readUInt8(this.currentContext);
+          const localVarCount = this.memory.readUInt8(newPC);
           newPC++;
-          for (
-            let operandIndex = 1;
-            operandIndex < operandTypes.length;
-            operandIndex++
-          ) {
-            this.memory.writeUint16BE(
-              operands[operandIndex],
-              this.currentContext + 1 + 2 * (operandIndex - 1),
-            );
-            newPC += 2;
+
+          // In versions 1-4, read initial values for local variables
+          // In versions 5+, locals are initialized to 0
+          if (this.header.version <= 4) {
+            // Skip over the initial values (we'll set them below)
+            newPC += localVarCount * 2;
           }
+
+          // Initialize local variables with arguments or default values
+          for (let i = 0; i < localVarCount; i++) {
+            const localVarAddress = this.currentContext + 1 + i * 2;
+
+            if (i < operands.length - 1) {
+              // Use argument value (operands[i+1] since operands[0] is routine address)
+              this.memory.writeUInt16BE(operands[i + 1], localVarAddress);
+            } else if (this.header.version <= 4) {
+              // Keep the initial value already in memory (do nothing)
+            } else {
+              // Version 5+: initialize to 0
+              this.memory.writeUInt16BE(0, localVarAddress);
+            }
+          }
+
           this.pc = newPC;
           return;
         case 1: // call_vs
@@ -391,9 +421,7 @@ class ZMachine {
       opcodeNumber = firstByte & 0b00011111;
       category = "VAR";
       // VAR form always reads operand types from the next byte
-      operandTypes = this.parseOperandTypes(
-        this.memory.readUInt8(this.pc + 1),
-      );
+      operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 1));
       offset = 2;
     }
     // Short form (top 2 bits = 10)
@@ -455,7 +483,9 @@ class ZMachine {
       return [0, 1, 7].includes(opcode); // call, call_vs, call_vn2
     }
     if (category === "2OP") {
-      return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(opcode); // or, and, loadw, loadb, etc.
+      return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(
+        opcode,
+      ); // or, and, loadw, loadb, etc.
     }
     if (category === "1OP") {
       return [1, 2, 3, 4, 5, 6, 7, 8, 14, 15].includes(opcode); // get_sibling, get_child, get_parent, etc.
