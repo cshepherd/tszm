@@ -231,20 +231,11 @@ class ZMachine {
       return;
     }
 
-    const { opcodeNumber, operandTypes, operands, bytesRead } =
+    const { opcodeNumber, operandTypes, operands, bytesRead, category } =
       this.decodeInstruction();
     this.advancePC(bytesRead);
 
-    const opcodeCategory =
-      operandTypes.length === 0
-        ? "0OP"
-        : operandTypes.length === 1
-          ? "1OP"
-          : operandTypes.length === 2
-            ? "2OP"
-            : "VAR";
-
-    this.executeOpcode(opcodeCategory, opcodeNumber, operands, operandTypes);
+    this.executeOpcode(category, opcodeNumber, operands, operandTypes);
   }
 
   private executeOpcode(
@@ -292,6 +283,14 @@ class ZMachine {
         case 12: // show_status
           console.log("@show_status");
           return;
+        case 187: // new_line
+          console.log("@new_line");
+          if (this.inputOutputDevice) {
+            this.inputOutputDevice.writeString("\n");
+          } else {
+            console.log("\n");
+          }
+          return;
       }
     }
 
@@ -299,17 +298,27 @@ class ZMachine {
     if (category === "VAR") {
       switch (opcode) {
         case 0: // call / call_vn
-          if (!this.memory) {
-            console.error("Memory not loaded");
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
             return;
           }
-          let calledRoutine = operands[0].toString(16);
+          // Unpack routine address based on version
+          let routineAddress = operands[0];
+          if (this.header.version <= 3) {
+            routineAddress *= 2;
+          } else if (this.header.version <= 5) {
+            routineAddress *= 4;
+          } else {
+            routineAddress *= 8;
+          }
+
+          let calledRoutine = routineAddress.toString(16);
           let args = operands.slice(1).map((a) => a.toString(16));
           console.log(
             `@call Calling routine at ${calledRoutine} with args ${args}`,
           );
           this.stack.push(this.pc);
-          this.currentContext = operands[0];
+          this.currentContext = routineAddress;
           let newPC = this.currentContext;
           const localVarCount = this.memory.readUInt8(this.currentContext);
           newPC++;
@@ -324,6 +333,7 @@ class ZMachine {
             );
             newPC += 2;
           }
+          this.pc = newPC;
           return;
         case 1: // call_vs
           calledRoutine = operands[0].toString(16);
@@ -334,7 +344,7 @@ class ZMachine {
           this.stack.push(this.pc);
           this.pc = operands[0];
           return;
-        case 5: // sread
+        case 4: // sread
           const rl = createInterface({
             input: process.stdin,
             output: process.stdout,
@@ -354,6 +364,7 @@ class ZMachine {
     operandTypes: string[];
     operands: number[];
     bytesRead: number;
+    category: string;
   } {
     if (!this.memory) {
       throw new Error("Memory not loaded");
@@ -363,21 +374,24 @@ class ZMachine {
     let offset = 1;
     let opcodeNumber: number;
     let operandTypes: string[] = [];
+    let category: string;
 
     // Extended form (0xBE)
     if (firstByte === 0xbe) {
       opcodeNumber = this.memory.readUInt8(this.pc + 1);
       operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 2));
       offset = 3;
+      category = "EXT";
     }
     // Variable form (top 2 bits = 11)
     else if ((firstByte & 0b11000000) === 0b11000000) {
       opcodeNumber = firstByte & 0b00011111;
+      category = "VAR";
       if ((firstByte & 0b00100000) === 0) {
         // VAR with 2OP - operand types encoded in bits 4-5
         operandTypes = [
-          (firstByte & 0b01000000) ? "VARIABLE" : "SMALL_CONST",
-          (firstByte & 0b00100000) ? "VARIABLE" : "SMALL_CONST",
+          firstByte & 0b01000000 ? "VARIABLE" : "SMALL_CONST",
+          firstByte & 0b00100000 ? "VARIABLE" : "SMALL_CONST",
         ];
       } else {
         // VAR with operand types byte
@@ -395,15 +409,19 @@ class ZMachine {
         operandTypes = [
           ["LARGE_CONST", "SMALL_CONST", "VARIABLE"][operandTypeBits],
         ];
+        category = "1OP";
+      } else {
+        category = "0OP";
       }
     }
     // Long form (top 2 bits = 00 or 01)
     else {
       opcodeNumber = firstByte & 0b00011111;
       operandTypes = [
-        (firstByte & 0b01000000) ? "VARIABLE" : "SMALL_CONST",
-        (firstByte & 0b00100000) ? "VARIABLE" : "SMALL_CONST",
+        firstByte & 0b01000000 ? "VARIABLE" : "SMALL_CONST",
+        firstByte & 0b00100000 ? "VARIABLE" : "SMALL_CONST",
       ];
+      category = "2OP";
     }
 
     // Fetch operands
@@ -418,7 +436,13 @@ class ZMachine {
       }
     }
 
-    return { opcodeNumber, operandTypes, operands, bytesRead: offset };
+    return {
+      opcodeNumber,
+      operandTypes,
+      operands,
+      bytesRead: offset,
+      category,
+    };
   }
 
   private parseOperandTypes(typeByte: number): string[] {
