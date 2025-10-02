@@ -164,13 +164,13 @@ class ZMachine {
   }
 
   getLocalVariableValue(variableNumber: number): any {
-    const memLocation = this.currentContext + 1 + ((variableNumber - 1) * 2);
+    const memLocation = this.currentContext + 1 + (variableNumber - 1) * 2;
 
     return this.memory?.readUInt16BE(memLocation);
   }
 
   setLocalVariableValue(variableNumber: number, value: number): any {
-    const memLocation = this.currentContext + 1 + ((variableNumber - 1) * 2);
+    const memLocation = this.currentContext + 1 + (variableNumber - 1) * 2;
 
     return this.memory?.writeUInt16BE(value, memLocation);
   }
@@ -272,11 +272,73 @@ class ZMachine {
         case 0:
           console.log("NOP executed");
           return;
+        case 5: // inc_chk
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for inc_chk");
+            return;
+          }
+          // Increment variable (operand 0) and branch if now greater than value (operand 1)
+          const incValue = this.getVariableValue(operands[0]);
+          const newIncValue = (incValue + 1) & 0xffff; // Keep as 16-bit
+          this.setVariableValue(operands[0], newIncValue);
+
+          // Convert to signed for comparison
+          const signedNewValue =
+            newIncValue > 32767 ? newIncValue - 65536 : newIncValue;
+          const signedCompareValue =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const condition = signedNewValue > signedCompareValue;
+          const shouldBranch = condition === branchOnTrue;
+
+          if (shouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const returnStoreVar = this.stack.pop();
+              const returnPC = this.stack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 13: // store
           this.setVariableValue(operands[0], operands[1]);
           return;
         case 15: // loadw
-          console.log("@loadw");
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
+          }
+          // loadw array word-index -> (result)
+          // Loads word at address (array + 2*word-index)
+          const arrayAddress = operands[0];
+          const wordIndex = operands[1];
+          const wordAddress = arrayAddress + 2 * wordIndex;
+          const value = this.memory.readUInt16BE(wordAddress);
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, value);
+          }
+          return;
+        case 16: // loadb
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
+          }
+          // loadb array byte-index -> (result)
+          // Loads byte at address (array + byte-index)
+          const byteArrayAddress = operands[0];
+          const byteIndex = operands[1];
+          const byteAddress = byteArrayAddress + byteIndex;
+          const byteValue = this.memory.readUInt8(byteAddress);
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, byteValue);
+          }
           return;
       }
     }
@@ -316,8 +378,15 @@ class ZMachine {
           const currentValue = this.getVariableValue(operands[0]);
           this.setVariableValue(operands[0], currentValue - 1);
           return;
+        case 12: // jump
+          // Unconditional jump with signed 16-bit offset
+          // Offset is relative to PC after the instruction (minus 2 per spec)
+          const jumpOffset =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          this.pc = this.pc + jumpOffset - 2;
+          return;
         case 13: // print_paddr
-          const stringAddr = this.getGlobalVariableValue(operands[0]) * 2;
+          const stringAddr = operands[0] * 2;
           const origPC = this.pc;
           this.pc = stringAddr;
           this.print();
@@ -376,9 +445,11 @@ class ZMachine {
 
           let calledRoutine = routineAddress.toString(16);
           let args = operands.slice(1).map((a) => a.toString(16));
-          console.log(
-            `@call Calling routine at ${calledRoutine} with args ${args}`,
-          );
+          if (this.trace) {
+            console.log(
+              `@call Calling routine at ${calledRoutine} with args ${args}`,
+            );
+          }
 
           // Save return info on stack
           this.stack.push(this.pc);
@@ -433,6 +504,32 @@ class ZMachine {
           rl.question("", () => {
             rl.close();
           });
+          return;
+        case 5: // print_char
+          // Print a ZSCII character
+          const zsciiChar = operands[0];
+          if (this.inputOutputDevice) {
+            this.inputOutputDevice.writeString(String.fromCharCode(zsciiChar));
+          } else {
+            console.log(String.fromCharCode(zsciiChar));
+          }
+          return;
+        case 6: // print_num
+          // Print a signed 16-bit number
+          const num = operands[0];
+          // Convert to signed 16-bit
+          const signedNum = num > 32767 ? num - 65536 : num;
+          if (this.inputOutputDevice) {
+            this.inputOutputDevice.writeString(signedNum.toString());
+          } else {
+            console.log(signedNum.toString());
+          }
+          return;
+        case 9: // and
+          const andResult = operands[0] & operands[1];
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, andResult);
+          }
           return;
       }
     }
@@ -600,7 +697,7 @@ class ZMachine {
   private isStoreInstruction(category: string, opcode: number): boolean {
     // List of store instructions by category
     if (category === "VAR") {
-      return [0, 1, 7].includes(opcode); // call, call_vs, call_vn2
+      return [0, 1, 7, 8, 9].includes(opcode); // call, call_vs, call_vn2, or, and
     }
     if (category === "2OP") {
       return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(
