@@ -160,19 +160,19 @@ class ZMachine {
 
     const memoryAddress =
       this.header.globalVariablesAddress + (variableNumber - 16) * 2;
-    return this.memory?.writeUInt16BE(memoryAddress, value);
+    return this.memory?.writeUInt16BE(value, memoryAddress);
   }
 
   getLocalVariableValue(variableNumber: number): any {
-    const memLocation = this.currentContext + (variableNumber - 1) * 2;
+    const memLocation = this.currentContext + 1 + ((variableNumber - 1) * 2);
 
     return this.memory?.readUInt16BE(memLocation);
   }
 
   setLocalVariableValue(variableNumber: number, value: number): any {
-    const memLocation = this.currentContext + (variableNumber - 1) * 2;
+    const memLocation = this.currentContext + 1 + ((variableNumber - 1) * 2);
 
-    return this.memory?.writeUInt16BE(memLocation, value);
+    return this.memory?.writeUInt16BE(value, memLocation);
   }
 
   getVariableValue(variableNumber: number): any {
@@ -297,8 +297,8 @@ class ZMachine {
             if (branchOffset === 0 || branchOffset === 1) {
               // Special values: return false or true
               const returnValue = branchOffset;
-              const returnPC = this.stack.pop();
               const returnStoreVar = this.stack.pop();
+              const returnPC = this.stack.pop();
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -329,6 +329,17 @@ class ZMachine {
     // 0OP opcodes
     if (category === "0OP") {
       switch (opcode) {
+        case 0: // rtrue
+          const returnValue = 1;
+          const returnStoreVar = this.stack.pop();
+          const returnPC = this.stack.pop();
+          if (returnPC !== undefined) {
+            this.pc = returnPC;
+            if (returnStoreVar !== undefined) {
+              this.setVariableValue(returnStoreVar, returnValue);
+            }
+          }
+          return;
         case 2: // print
           this.print();
           return;
@@ -509,6 +520,10 @@ class ZMachine {
       if (type === "LARGE_CONST") {
         operands.push(this.memory.readUInt16BE(this.pc + offset));
         offset += 2;
+      } else if (type === "VARIABLE") {
+        const variableNumber = this.memory.readUInt8(this.pc + offset);
+        operands.push(this.getVariableValue(variableNumber));
+        offset += 1;
       } else {
         operands.push(this.memory.readUInt8(this.pc + offset));
         offset += 1;

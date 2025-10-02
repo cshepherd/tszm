@@ -45,6 +45,106 @@ async function main() {
     await zm.executeInstruction();
     await zm.executeInstruction();
     await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+
+    await zm.executeInstruction();
+    await zm.executeInstruction();
+    await zm.executeInstruction();
   } catch (err) {
     console.error("Error:", err);
   }
