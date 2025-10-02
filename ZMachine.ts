@@ -37,6 +37,7 @@ class ZMachine {
   private memory: Buffer | null = null;
   private stack: number[] = [];
   private currentContext: number = 0;
+  private trace: boolean = false; // Enable debug logging
 
   constructor(
     private filePath: string,
@@ -277,6 +278,10 @@ class ZMachine {
     // 1OP opcodes
     if (category === "1OP") {
       switch (opcode) {
+        case 6: // dec (decrement variable)
+          const currentValue = this.getVariableValue(operands[0]);
+          this.setVariableValue(operands[0], currentValue - 1);
+          return;
         case 13: // print_paddr
           const stringAddr = this.getGlobalVariableValue(operands[0]) * 2;
           const origPC = this.pc;
@@ -310,7 +315,6 @@ class ZMachine {
     if (category === "VAR") {
       switch (opcode) {
         case 0: // call / call_vn
-          console.log(`storeVariable -> ${storeVariable?.toString(16)}`);
           if (!this.memory || !this.header) {
             console.error("Memory or header not loaded");
             return;
@@ -409,12 +413,19 @@ class ZMachine {
     let operandTypes: string[] = [];
     let category: string;
 
+    if (this.trace) {
+      console.log(
+        `Decoding byte at PC=${this.pc.toString(16)}: 0x${firstByte.toString(16)} (0b${firstByte.toString(2).padStart(8, "0")})`,
+      );
+    }
+
     // Extended form (0xBE)
     if (firstByte === 0xbe) {
       opcodeNumber = this.memory.readUInt8(this.pc + 1);
       operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 2));
       offset = 3;
       category = "EXT";
+      if (this.trace) console.log(`  -> Extended form: EXT:${opcodeNumber}`);
     }
     // Variable form (top 2 bits = 11)
     else if ((firstByte & 0b11000000) === 0b11000000) {
@@ -423,18 +434,26 @@ class ZMachine {
       // VAR form always reads operand types from the next byte
       operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 1));
       offset = 2;
+      if (this.trace) console.log(`  -> Variable form: VAR:${opcodeNumber}`);
     }
     // Short form (top 2 bits = 10)
     else if ((firstByte & 0b11000000) === 0b10000000) {
       opcodeNumber = firstByte & 0b00001111;
       const operandTypeBits = (firstByte & 0b00110000) >> 4;
+      if (this.trace) {
+        console.log(
+          `  -> Short form: opcode=${opcodeNumber}, operandTypeBits=${operandTypeBits}`,
+        );
+      }
       if (operandTypeBits !== 0b11) {
         operandTypes = [
           ["LARGE_CONST", "SMALL_CONST", "VARIABLE"][operandTypeBits],
         ];
         category = "1OP";
+        if (this.trace) console.log(`  -> 1OP:${opcodeNumber}`);
       } else {
         category = "0OP";
+        if (this.trace) console.log(`  -> 0OP:${opcodeNumber}`);
       }
     }
     // Long form (top 2 bits = 00 or 01)
@@ -445,6 +464,7 @@ class ZMachine {
         firstByte & 0b00100000 ? "VARIABLE" : "SMALL_CONST",
       ];
       category = "2OP";
+      if (this.trace) console.log(`  -> Long form: 2OP:${opcodeNumber}`);
     }
 
     // Fetch operands
@@ -488,7 +508,8 @@ class ZMachine {
       ); // or, and, loadw, loadb, etc.
     }
     if (category === "1OP") {
-      return [1, 2, 3, 4, 5, 6, 7, 8, 14, 15].includes(opcode); // get_sibling, get_child, get_parent, etc.
+      return [1, 2, 3, 4, 7, 8, 14, 15].includes(opcode); // get_sibling, get_child, get_parent, get_prop_len, call_1s, call_1n, not (v5), call_1n (v5)
+      // Note: opcodes 5 (inc) and 6 (dec) are NOT store instructions
     }
     if (category === "0OP") {
       return false; // No 0OP store instructions
