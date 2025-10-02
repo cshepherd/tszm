@@ -225,7 +225,7 @@ async function main() {
     await zm.executeInstruction();
     await zm.executeInstruction();
     await zm.executeInstruction();
-
+/*
     await zm.executeInstruction();
     await zm.executeInstruction();
     await zm.executeInstruction();
@@ -233,7 +233,8 @@ async function main() {
     await zm.executeInstruction();
     await zm.executeInstruction();
     await zm.executeInstruction();
-  } catch (err) {
+*/
+    } catch (err) {
     console.error("Error:", err);
   }
 }

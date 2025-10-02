@@ -50,8 +50,6 @@ class ZMachine {
 
     // init pc to first instruction in high memory + offset from header
     this.pc = this.header?.initialProgramCounter || 0;
-
-    //    this.parseObjectTable(this.memory, this.header?.objectTableAddress || 0);
   }
 
   private parseHeader(buffer: Buffer) {
@@ -72,73 +70,6 @@ class ZMachine {
       checksumValid: false,
       alphabetIdentifier: buffer.readUInt16BE(52),
     };
-  }
-
-  private parseObjectTable(
-    buffer: Buffer,
-    objectTableAddress: number,
-  ): zMachineObject[] {
-    let propertyDefaultSize: number = 31 * 2; // Property Default Table is 31 words
-    let objectEntrySize: number = 9; // Each object entry is 9 bytes for version 1-3
-    let maxObjects: number = 255; // Max objects for version 1-3
-    if (this.header && this.header.version > 3) {
-      propertyDefaultSize = 63 * 2; // Property Default Table is 63 words for version 4 and above
-      objectEntrySize = 14; // Each object entry is 14 bytes for version 4 and above
-      maxObjects = 65535; // Max objects for version 4 and above
-    }
-    const objects: zMachineObject[] = [];
-    console.log("Object table address:", objectTableAddress);
-    console.log(
-      "Global variables address:",
-      this.header?.globalVariablesAddress || 0,
-    );
-    console.log("Property default size:", propertyDefaultSize);
-    console.log("Object entry size:", objectEntrySize);
-    let objectCount = 0;
-    if (this.header) {
-      objectCount =
-        (this.header.globalVariablesAddress -
-          objectTableAddress -
-          propertyDefaultSize) /
-        objectEntrySize;
-    }
-    console.log("Object count:", objectCount);
-    if (objectCount > maxObjects) {
-      // sanity check
-      console.log("Object count exceeds maximum, truncated to", maxObjects);
-      objectCount = maxObjects;
-    }
-
-    for (let i = 0; i < objectCount; i++) {
-      const offset =
-        objectTableAddress + propertyDefaultSize + i * objectEntrySize;
-      console.log(`Object ${i + 1} offset:`, offset);
-      const objBuffer = buffer.slice(offset, offset + objectEntrySize);
-      if (this.header && this.header.version < 4) {
-        // Version 1-3 object format
-        const obj: zMachineObject = {
-          id: i + 1,
-          attributes: objBuffer.slice(0, 4), // 32 attributes (4 bytes)
-          parent: objBuffer.readUInt8(4),
-          sibling: objBuffer.readUInt8(5),
-          child: objBuffer.readUInt8(6),
-          propertyTableAddress: objBuffer.readUInt16BE(7),
-        };
-        objects.push(obj);
-      } else {
-        // Version 4+ object format
-        const obj: zMachineObject = {
-          id: i + 1,
-          attributes: objBuffer.slice(0, 6), // 32 attributes (6 bytes)
-          parent: objBuffer.readUInt16BE(6),
-          sibling: objBuffer.readUInt16BE(8),
-          child: objBuffer.readUInt16BE(10),
-          propertyTableAddress: objBuffer.readUInt16BE(12),
-        };
-        objects.push(obj);
-      }
-    }
-    return objects;
   }
 
   getGlobalVariableValue(variableNumber: number): any {
@@ -393,6 +324,44 @@ class ZMachine {
             }
           }
           return;
+        case 11: // set_attr
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Set an attribute on an object
+          const setAttrObjectId = operands[0];
+          const setAttrNum = operands[1];
+
+          // Calculate object address
+          const setAttrPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const setAttrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const setAttrObjectAddress =
+            this.header.objectTableAddress +
+            setAttrPropertyDefaultSize +
+            (setAttrObjectId - 1) * setAttrObjectEntrySize;
+
+          // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
+          const setAttrByteCount = this.header.version <= 3 ? 4 : 6;
+          const setAttrByteIndex = Math.floor(setAttrNum / 8);
+          const setAttrBitIndex = 7 - (setAttrNum % 8); // MSB is attribute 0
+
+          if (setAttrByteIndex >= setAttrByteCount) {
+            console.error(`Invalid attribute number ${setAttrNum}`);
+            return;
+          }
+
+          // Read, set bit, write back
+          const setAttrByte = this.memory.readUInt8(
+            setAttrObjectAddress + setAttrByteIndex,
+          );
+          const setAttrNewByte = setAttrByte | (1 << setAttrBitIndex);
+          this.memory.writeUInt8(
+            setAttrNewByte,
+            setAttrObjectAddress + setAttrByteIndex,
+          );
+          return;
         case 13: // store
           this.setVariableValue(operands[0], operands[1]);
           return;
@@ -424,6 +393,104 @@ class ZMachine {
           const byteValue = this.memory.readUInt8(byteAddress);
           if (storeVariable !== undefined) {
             this.setVariableValue(storeVariable, byteValue);
+          }
+          return;
+        case 17: // get_prop
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get a property value from an object
+          const getPropObjectId = operands[0];
+          const getPropNum = operands[1];
+
+          // Calculate object address
+          const getPropPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const getPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const getPropObjectAddress =
+            this.header.objectTableAddress +
+            getPropPropertyDefaultSize +
+            (getPropObjectId - 1) * getPropObjectEntrySize;
+
+          // Get property table address (last 2 bytes of object entry)
+          const getPropPropertyTableAddr = this.memory.readUInt16BE(
+            getPropObjectAddress + getPropObjectEntrySize - 2,
+          );
+
+          // Skip past the short name (first byte is length in words)
+          const getPropNameLength = this.memory.readUInt8(
+            getPropPropertyTableAddr,
+          );
+          let getPropAddr =
+            getPropPropertyTableAddr + 1 + getPropNameLength * 2;
+
+          // Search through properties
+          let getPropValue = 0;
+          let getPropFound = false;
+
+          while (true) {
+            const getPropSizeByte = this.memory.readUInt8(getPropAddr);
+            if (getPropSizeByte === 0) break; // End of properties
+
+            let getPropCurrentNum: number;
+            let getPropDataSize: number;
+
+            if (this.header.version <= 3) {
+              // Version 1-3: size byte format is SSSPPPP
+              getPropDataSize = (getPropSizeByte >> 5) + 1;
+              getPropCurrentNum = getPropSizeByte & 0x1f;
+            } else {
+              // Version 4+: more complex format
+              getPropCurrentNum = getPropSizeByte & 0x3f;
+              if (getPropSizeByte & 0x80) {
+                // Two-byte size field
+                const getPropSecondByte = this.memory.readUInt8(
+                  getPropAddr + 1,
+                );
+                getPropDataSize = getPropSecondByte & 0x3f;
+                if (getPropDataSize === 0) getPropDataSize = 64;
+                getPropAddr += 2;
+              } else {
+                // Single byte, bit 6 determines size
+                getPropDataSize = getPropSizeByte & 0x40 ? 2 : 1;
+                getPropAddr += 1;
+              }
+            }
+
+            if (this.header.version <= 3) {
+              getPropAddr += 1;
+            }
+
+            if (getPropCurrentNum === getPropNum) {
+              // Found the property
+              if (getPropDataSize === 1) {
+                getPropValue = this.memory.readUInt8(getPropAddr);
+              } else if (getPropDataSize === 2) {
+                getPropValue = this.memory.readUInt16BE(getPropAddr);
+              } else {
+                console.error(
+                  `Invalid property size ${getPropDataSize} for get_prop`,
+                );
+                return;
+              }
+              getPropFound = true;
+              break;
+            }
+
+            // Move to next property
+            getPropAddr += getPropDataSize;
+          }
+
+          if (!getPropFound) {
+            // Property not found, return default value from property defaults table
+            const getPropDefaultAddr =
+              this.header.objectTableAddress + (getPropNum - 1) * 2;
+            getPropValue = this.memory.readUInt16BE(getPropDefaultAddr);
+          }
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, getPropValue);
           }
           return;
       }
@@ -460,9 +527,71 @@ class ZMachine {
             }
           }
           return;
+        case 3: // get_parent
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get the parent of an object
+          const getParentObjectId = operands[0];
+
+          // Calculate object address
+          const getParentPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const getParentObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const getParentObjectAddress =
+            this.header.objectTableAddress +
+            getParentPropertyDefaultSize +
+            (getParentObjectId - 1) * getParentObjectEntrySize;
+
+          // Read parent field
+          let getParentValue: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: parent is at offset 4 (1 byte)
+            getParentValue = this.memory.readUInt8(getParentObjectAddress + 4);
+          } else {
+            // Version 4+: parent is at offset 6 (2 bytes)
+            getParentValue = this.memory.readUInt16BE(
+              getParentObjectAddress + 6,
+            );
+          }
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, getParentValue);
+          }
+          return;
         case 6: // dec (decrement variable)
           const currentValue = this.getVariableValue(operands[0]);
           this.setVariableValue(operands[0], currentValue - 1);
+          return;
+        case 10: // print_obj
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Print the short name of an object
+          const printObjId = operands[0];
+
+          // Calculate object address
+          const printObjPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const printObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const printObjObjectAddress =
+            this.header.objectTableAddress +
+            printObjPropertyDefaultSize +
+            (printObjId - 1) * printObjObjectEntrySize;
+
+          // Get property table address (last 2 bytes of object entry)
+          const printObjPropertyTableAddr = this.memory.readUInt16BE(
+            printObjObjectAddress + printObjObjectEntrySize - 2,
+          );
+
+          // The short name is stored at the property table address
+          // First byte is the length in words, followed by the text
+          const printObjOrigPC = this.pc;
+          this.pc = printObjPropertyTableAddr + 1; // Skip the length byte
+          this.print();
+          this.pc = printObjOrigPC;
           return;
         case 12: // jump
           // Unconditional jump with signed 16-bit offset
@@ -492,6 +621,17 @@ class ZMachine {
             this.pc = returnPC;
             if (returnStoreVar !== undefined) {
               this.setVariableValue(returnStoreVar, returnValue);
+            }
+          }
+          return;
+        case 1: // rfalse
+          const rfalseReturnValue = 0;
+          const rfalseReturnStoreVar = this.stack.pop();
+          const rfalseReturnPC = this.stack.pop();
+          if (rfalseReturnPC !== undefined) {
+            this.pc = rfalseReturnPC;
+            if (rfalseReturnStoreVar !== undefined) {
+              this.setVariableValue(rfalseReturnStoreVar, rfalseReturnValue);
             }
           }
           return;
@@ -573,14 +713,49 @@ class ZMachine {
 
           this.pc = newPC;
           return;
-        case 1: // call_vs
-          const calledRoutineVs = operands[0].toString(16);
-          const argsVs = operands.slice(1).map((a) => a.toString(16));
-          console.log(
-            `@call Calling routine at ${calledRoutineVs} with args ${argsVs}`,
-          );
-          this.stack.push(this.pc);
-          this.pc = operands[0];
+        case 1: // je (v1-4) / call_vs (v5+)
+          if (this.header && this.header.version <= 4) {
+            // Version 1-4: je (jump if equal) with multiple operands
+            if (branchOffset === undefined || branchOnTrue === undefined) {
+              console.error("Branch information missing for je");
+              return;
+            }
+            const jeVarTestValue = operands[0];
+            let jeVarCondition = false;
+            for (let i = 1; i < operands.length; i++) {
+              if (jeVarTestValue === operands[i]) {
+                jeVarCondition = true;
+                break;
+              }
+            }
+            const jeVarShouldBranch = jeVarCondition === branchOnTrue;
+
+            if (jeVarShouldBranch) {
+              if (branchOffset === 0 || branchOffset === 1) {
+                const returnValue = branchOffset;
+                const returnStoreVar = this.stack.pop();
+                const returnPC = this.stack.pop();
+                if (returnPC !== undefined) {
+                  this.pc = returnPC;
+                  if (returnStoreVar !== undefined) {
+                    this.setVariableValue(returnStoreVar, returnValue);
+                  }
+                }
+              } else {
+                const newPC = this.pc + branchOffset - 2;
+                this.pc = newPC;
+              }
+            }
+          } else {
+            // Version 5+: call_vs
+            const calledRoutineVs = operands[0].toString(16);
+            const argsVs = operands.slice(1).map((a) => a.toString(16));
+            console.log(
+              `@call Calling routine at ${calledRoutineVs} with args ${argsVs}`,
+            );
+            this.stack.push(this.pc);
+            this.pc = operands[0];
+          }
           return;
         case 4: // sread
           const rl = createInterface({
@@ -775,6 +950,10 @@ class ZMachine {
       return [5, 6, 13, 15].includes(opcode); // save, restore, verify, piracy
     }
     if (category === "VAR") {
+      // VAR:1 is je (branch) in v1-4, call_vs (store) in v5+
+      if (opcode === 1 && this.header && this.header.version <= 4) {
+        return true;
+      }
       return [17, 19, 20].includes(opcode); // scan_table, check_arg_count, call_vn (v5+)
     }
     return false;
@@ -783,6 +962,10 @@ class ZMachine {
   private isStoreInstruction(category: string, opcode: number): boolean {
     // List of store instructions by category
     if (category === "VAR") {
+      // VAR:1 is je (branch) in v1-4, call_vs (store) in v5+
+      if (opcode === 1 && this.header && this.header.version <= 4) {
+        return false; // je is not a store instruction
+      }
       return [0, 1, 7, 8, 9].includes(opcode); // call, call_vs, call_vn2, or, and
     }
     if (category === "2OP") {
