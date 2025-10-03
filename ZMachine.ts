@@ -26,7 +26,8 @@ class ZMachine {
   private fileHandle: any;
   private header: zMachineHeader | null = null;
   private memory: Buffer | null = null;
-  private stack: number[] = [];
+  private stack: number[] = []; // User stack (variable 0)
+  private callStack: number[] = []; // Call frame stack (return addresses, store vars)
   private currentContext: number = 0;
   private trace: boolean = false; // Enable debug logging
 
@@ -154,6 +155,7 @@ class ZMachine {
       return;
     }
 
+    const startPC = this.pc;
     const {
       opcodeNumber,
       operandTypes,
@@ -164,6 +166,19 @@ class ZMachine {
       branchOffset,
       branchOnTrue,
     } = this.decodeInstruction();
+
+    // Trace logging: show PC and instruction bytes
+    if (this.trace) {
+      let traceOutput = `${startPC.toString(16).padStart(4, "0")}:`;
+      for (let i = 0; i < bytesRead; i++) {
+        traceOutput += ` ${this.memory
+          .readUInt8(startPC + i)
+          .toString(16)
+          .padStart(2, "0")}`;
+      }
+      console.log(traceOutput);
+    }
+
     this.advancePC(bytesRead);
 
     this.executeOpcode(
@@ -214,8 +229,25 @@ class ZMachine {
           if (jeShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
-              const returnStoreVar = this.stack.pop();
-              const returnPC = this.stack.pop();
+              if (this.trace) {
+                console.log(
+                  `@je branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-5)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
+              const frameMarker = this.callStack.pop();
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@je Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -249,8 +281,12 @@ class ZMachine {
           if (shouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
-              const returnStoreVar = this.stack.pop();
-              const returnPC = this.stack.pop();
+              const frameMarker = this.callStack.pop();
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -342,6 +378,62 @@ class ZMachine {
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
+            }
+          }
+          return;
+        case 6: // jin (jump if child)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jin");
+            return;
+          }
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Test if obj1 is a direct child of obj2
+          const jinObj1 = operands[0];
+          const jinObj2 = operands[1];
+
+          // Calculate obj1 address
+          const jinPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const jinObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const jinObj1Address =
+            this.header.objectTableAddress +
+            jinPropertyDefaultSize +
+            (jinObj1 - 1) * jinObjectEntrySize;
+
+          // Read parent of obj1
+          let jinParent: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: parent is at offset 4 (1 byte)
+            jinParent = this.memory.readUInt8(jinObj1Address + 4);
+          } else {
+            // Version 4+: parent is at offset 6 (2 bytes)
+            jinParent = this.memory.readUInt16BE(jinObj1Address + 6);
+          }
+
+          const jinCondition = jinParent === jinObj2;
+          const jinShouldBranch = jinCondition === branchOnTrue;
+
+          if (jinShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              // Normal branch: offset is relative to current PC
+              this.pc = this.pc + branchOffset;
             }
           }
           return;
@@ -552,6 +644,85 @@ class ZMachine {
             this.setVariableValue(storeVariable, getPropValue);
           }
           return;
+        case 18: // get_prop_addr
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get the address of a property data in an object
+          const getPropAddrObjectId = operands[0];
+          const getPropAddrNum = operands[1];
+
+          // Calculate object address
+          const getPropAddrPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const getPropAddrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const getPropAddrObjectAddress =
+            this.header.objectTableAddress +
+            getPropAddrPropertyDefaultSize +
+            (getPropAddrObjectId - 1) * getPropAddrObjectEntrySize;
+
+          // Get property table address (last 2 bytes of object entry)
+          const getPropAddrPropertyTableAddr = this.memory.readUInt16BE(
+            getPropAddrObjectAddress + getPropAddrObjectEntrySize - 2,
+          );
+
+          // Skip past the short name (first byte is length in words)
+          const getPropAddrNameLength = this.memory.readUInt8(
+            getPropAddrPropertyTableAddr,
+          );
+          let getPropAddrAddr =
+            getPropAddrPropertyTableAddr + 1 + getPropAddrNameLength * 2;
+
+          // Search through properties
+          let getPropAddrResult = 0;
+
+          while (true) {
+            const getPropAddrSizeByte = this.memory.readUInt8(getPropAddrAddr);
+            if (getPropAddrSizeByte === 0) break; // End of properties
+
+            let getPropAddrCurrentNum: number;
+            let getPropAddrDataSize: number;
+            let getPropAddrDataAddr: number;
+
+            if (this.header.version <= 3) {
+              // Version 1-3: size byte format is SSSPPPP
+              getPropAddrDataSize = (getPropAddrSizeByte >> 5) + 1;
+              getPropAddrCurrentNum = getPropAddrSizeByte & 0x1f;
+              getPropAddrDataAddr = getPropAddrAddr + 1;
+            } else {
+              // Version 4+: more complex format
+              getPropAddrCurrentNum = getPropAddrSizeByte & 0x3f;
+              if (getPropAddrSizeByte & 0x80) {
+                // Two-byte size field
+                const getPropAddrSecondByte = this.memory.readUInt8(
+                  getPropAddrAddr + 1,
+                );
+                getPropAddrDataSize = getPropAddrSecondByte & 0x3f;
+                if (getPropAddrDataSize === 0) getPropAddrDataSize = 64;
+                getPropAddrDataAddr = getPropAddrAddr + 2;
+              } else {
+                // Single byte, bit 6 determines size
+                getPropAddrDataSize = getPropAddrSizeByte & 0x40 ? 2 : 1;
+                getPropAddrDataAddr = getPropAddrAddr + 1;
+              }
+            }
+
+            if (getPropAddrCurrentNum === getPropAddrNum) {
+              // Found the property, return the address of the data
+              getPropAddrResult = getPropAddrDataAddr;
+              break;
+            }
+
+            // Move to next property
+            getPropAddrAddr = getPropAddrDataAddr + getPropAddrDataSize;
+          }
+
+          // If property not found, return 0
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, getPropAddrResult);
+          }
+          return;
         case 23: // div
           // Signed 16-bit division
           const divDividend =
@@ -606,7 +777,131 @@ class ZMachine {
               }
             } else {
               // Normal branch: offset is relative to current PC
-              this.pc = this.pc + branchOffset;
+              this.pc = this.pc + branchOffset - 2;
+            }
+          }
+          return;
+        case 1: // get_sibling
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for get_sibling");
+            return;
+          }
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get the sibling of an object
+          const getSiblingObjectId = operands[0];
+
+          // Calculate object address
+          const getSiblingPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const getSiblingObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const getSiblingObjectAddress =
+            this.header.objectTableAddress +
+            getSiblingPropertyDefaultSize +
+            (getSiblingObjectId - 1) * getSiblingObjectEntrySize;
+
+          // Read sibling field
+          let getSiblingValue: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: sibling is at offset 6 (1 byte)
+            getSiblingValue = this.memory.readUInt8(
+              getSiblingObjectAddress + 6,
+            );
+          } else {
+            // Version 4+: sibling is at offset 10 (2 bytes)
+            getSiblingValue = this.memory.readUInt16BE(
+              getSiblingObjectAddress + 10,
+            );
+          }
+
+          // Store the sibling value
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, getSiblingValue);
+          }
+
+          // Branch if sibling exists (non-zero)
+          const getSiblingCondition = getSiblingValue !== 0;
+          const getSiblingShouldBranch = getSiblingCondition === branchOnTrue;
+
+          if (getSiblingShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              this.pc = this.pc + branchOffset - 2;
+            }
+          }
+          return;
+        case 2: // get_child
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for get_child");
+            return;
+          }
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get the first child of an object
+          const getChildObjectId = operands[0];
+
+          // Calculate object address
+          const getChildPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const getChildObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const getChildObjectAddress =
+            this.header.objectTableAddress +
+            getChildPropertyDefaultSize +
+            (getChildObjectId - 1) * getChildObjectEntrySize;
+
+          // Read child field
+          let getChildValue: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: child is at offset 5 (1 byte)
+            getChildValue = this.memory.readUInt8(getChildObjectAddress + 5);
+          } else {
+            // Version 4+: child is at offset 8 (2 bytes)
+            getChildValue = this.memory.readUInt16BE(getChildObjectAddress + 8);
+          }
+
+          // Store the child value
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, getChildValue);
+          }
+
+          // Branch if child exists (non-zero)
+          const getChildCondition = getChildValue !== 0;
+          const getChildShouldBranch = getChildCondition === branchOnTrue;
+
+          if (getChildShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              this.pc = this.pc + branchOffset - 2;
             }
           }
           return;
@@ -678,10 +973,10 @@ class ZMachine {
           return;
         case 12: // jump
           // Unconditional jump with signed 16-bit offset
-          // Offset is relative to PC after the instruction
+          // Offset is relative to PC after the instruction, minus 2 per Z-machine spec
           const jumpOffset =
             operands[0] > 32767 ? operands[0] - 65536 : operands[0];
-          this.pc = this.pc + jumpOffset;
+          this.pc = this.pc + jumpOffset - 2;
           return;
         case 13: // print_paddr
           const stringAddr = operands[0] * 2;
@@ -698,8 +993,25 @@ class ZMachine {
       switch (opcode) {
         case 0: // rtrue
           const returnValue = 1;
-          const returnStoreVar = this.stack.pop();
-          const returnPC = this.stack.pop();
+          const frameMarker = this.callStack.pop();
+          if (this.trace) {
+            console.log(
+              `@rtrue frameMarker=${frameMarker}, callStack before pops: [${this.callStack
+                .slice(-5)
+                .map((v) => v.toString(16))
+                .join(", ")}]`,
+            );
+          }
+          let returnStoreVar: number | undefined;
+          if (frameMarker === 1) {
+            returnStoreVar = this.callStack.pop();
+          }
+          const returnPC = this.callStack.pop();
+          if (this.trace) {
+            console.log(
+              `@rtrue Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+            );
+          }
           if (returnPC !== undefined) {
             this.pc = returnPC;
             if (returnStoreVar !== undefined) {
@@ -709,8 +1021,12 @@ class ZMachine {
           return;
         case 1: // rfalse
           const rfalseReturnValue = 0;
-          const rfalseReturnStoreVar = this.stack.pop();
-          const rfalseReturnPC = this.stack.pop();
+          const rfalseFrameMarker = this.callStack.pop();
+          let rfalseReturnStoreVar: number | undefined;
+          if (rfalseFrameMarker === 1) {
+            rfalseReturnStoreVar = this.callStack.pop();
+          }
+          const rfalseReturnPC = this.callStack.pop();
           if (rfalseReturnPC !== undefined) {
             this.pc = rfalseReturnPC;
             if (rfalseReturnStoreVar !== undefined) {
@@ -760,10 +1076,25 @@ class ZMachine {
             );
           }
 
-          // Save return info on stack
-          this.stack.push(this.pc);
+          // Save return info on call stack
+          // Format: [return PC] [storeVariable (if exists)] [frame marker]
+          // Frame marker: bit 0 indicates if storeVariable was pushed
+          this.callStack.push(this.pc);
           if (storeVariable !== undefined) {
-            this.stack.push(storeVariable);
+            this.callStack.push(storeVariable);
+            this.callStack.push(1); // Frame marker: has store variable
+            if (this.trace) {
+              console.log(
+                `@call Pushed: returnPC=${this.pc.toString(16)}, storeVar=${storeVariable}, marker=1`,
+              );
+            }
+          } else {
+            this.callStack.push(0); // Frame marker: no store variable
+            if (this.trace) {
+              console.log(
+                `@call Pushed: returnPC=${this.pc.toString(16)}, marker=0`,
+              );
+            }
           }
 
           // Set up new routine context
@@ -816,8 +1147,25 @@ class ZMachine {
             if (jeVarShouldBranch) {
               if (branchOffset === 0 || branchOffset === 1) {
                 const returnValue = branchOffset;
-                const returnStoreVar = this.stack.pop();
-                const returnPC = this.stack.pop();
+                if (this.trace) {
+                  console.log(
+                    `@je(VAR) branch return ${returnValue}, callStack: [${this.callStack
+                      .slice(-5)
+                      .map((v) => v.toString(16))
+                      .join(", ")}]`,
+                  );
+                }
+                const frameMarker = this.callStack.pop();
+                let returnStoreVar: number | undefined;
+                if (frameMarker === 1) {
+                  returnStoreVar = this.callStack.pop();
+                }
+                const returnPC = this.callStack.pop();
+                if (this.trace) {
+                  console.log(
+                    `@je(VAR) Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                  );
+                }
                 if (returnPC !== undefined) {
                   this.pc = returnPC;
                   if (returnStoreVar !== undefined) {
