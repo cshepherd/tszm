@@ -274,6 +274,66 @@ class ZMachine {
             }
           }
           return;
+        case 4: // dec_chk
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for dec_chk");
+            return;
+          }
+          // Decrement variable (operand 0) and branch if now less than value (operand 1)
+          const decValue = this.getVariableValue(operands[0]);
+          const newDecValue = (decValue - 1) & 0xffff; // Keep as 16-bit
+          this.setVariableValue(operands[0], newDecValue);
+
+          // Convert to signed for comparison
+          const signedDecNewValue =
+            newDecValue > 32767 ? newDecValue - 65536 : newDecValue;
+          const signedDecCompareValue =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const decCondition = signedDecNewValue < signedDecCompareValue;
+          const decShouldBranch = decCondition === branchOnTrue;
+
+          if (decShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-10)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 5: // inc_chk
           if (branchOffset === undefined || branchOnTrue === undefined) {
             console.error("Branch information missing for inc_chk");
@@ -332,6 +392,18 @@ class ZMachine {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
             }
+          }
+          return;
+        case 8: // or
+          const orResult2OP = operands[0] | operands[1];
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, orResult2OP);
+          }
+          return;
+        case 9: // and
+          const andResult2OP = operands[0] & operands[1];
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, andResult2OP);
           }
           return;
         case 10: // test_attr
@@ -884,6 +956,92 @@ class ZMachine {
             this.setVariableValue(storeVariable, getPropAddrResult);
           }
           return;
+        case 19: // put_prop
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Set a property value on an object
+          const putPropObjectId = operands[0];
+          const putPropNum = operands[1];
+          const putPropValue = operands[2];
+
+          // Calculate object address
+          const putPropPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const putPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const putPropObjectAddress =
+            this.header.objectTableAddress +
+            putPropPropertyDefaultSize +
+            (putPropObjectId - 1) * putPropObjectEntrySize;
+
+          // Get property table address (last 2 bytes of object entry)
+          const putPropPropertyTableAddr = this.memory.readUInt16BE(
+            putPropObjectAddress + putPropObjectEntrySize - 2,
+          );
+
+          // Skip past the short name (first byte is length in words)
+          const putPropNameLength = this.memory.readUInt8(
+            putPropPropertyTableAddr,
+          );
+          let putPropAddr =
+            putPropPropertyTableAddr + 1 + putPropNameLength * 2;
+
+          // Search through properties to find the one to modify
+          while (true) {
+            const putPropSizeByte = this.memory.readUInt8(putPropAddr);
+            if (putPropSizeByte === 0) {
+              console.error(
+                `Property ${putPropNum} not found on object ${putPropObjectId}`,
+              );
+              return;
+            }
+
+            let putPropCurrentNum: number;
+            let putPropDataSize: number;
+            let putPropDataAddr: number;
+
+            if (this.header.version <= 3) {
+              // Version 1-3: size byte format is SSSPPPP
+              putPropDataSize = (putPropSizeByte >> 5) + 1;
+              putPropCurrentNum = putPropSizeByte & 0x1f;
+              putPropDataAddr = putPropAddr + 1;
+            } else {
+              // Version 4+: more complex format
+              putPropCurrentNum = putPropSizeByte & 0x3f;
+              if (putPropSizeByte & 0x80) {
+                // Two-byte size field
+                const putPropSecondByte = this.memory.readUInt8(
+                  putPropAddr + 1,
+                );
+                putPropDataSize = putPropSecondByte & 0x3f;
+                if (putPropDataSize === 0) putPropDataSize = 64;
+                putPropDataAddr = putPropAddr + 2;
+              } else {
+                // Single byte, bit 6 determines size
+                putPropDataSize = putPropSizeByte & 0x40 ? 2 : 1;
+                putPropDataAddr = putPropAddr + 1;
+              }
+            }
+
+            if (putPropCurrentNum === putPropNum) {
+              // Found the property, write the value
+              if (putPropDataSize === 1) {
+                this.memory.writeUInt8(putPropValue & 0xff, putPropDataAddr);
+              } else if (putPropDataSize === 2) {
+                this.memory.writeUInt16BE(putPropValue, putPropDataAddr);
+              } else {
+                console.error(
+                  `Invalid property size ${putPropDataSize} for put_prop`,
+                );
+                return;
+              }
+              return;
+            }
+
+            // Move to next property
+            putPropAddr = putPropDataAddr + putPropDataSize;
+          }
         case 20: // add
           // Signed 16-bit addition
           const addOperand1 =
@@ -922,6 +1080,25 @@ class ZMachine {
             this.setVariableValue(storeVariable, subResult);
           }
           return;
+        case 22: // mul
+          // Signed 16-bit multiplication
+          const mulOperand1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const mulOperand2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          let mulResult = mulOperand1 * mulOperand2;
+
+          // Convert back to unsigned 16-bit
+          if (mulResult < 0) {
+            mulResult = mulResult + 65536;
+          }
+          mulResult = mulResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, mulResult);
+          }
+          return;
         case 23: // div
           // Signed 16-bit division
           const divDividend =
@@ -945,6 +1122,31 @@ class ZMachine {
 
           if (storeVariable !== undefined) {
             this.setVariableValue(storeVariable, divResult);
+          }
+          return;
+        case 24: // mod
+          // Signed 16-bit modulo (remainder after division)
+          const modDividend =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const modDivisor =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          if (modDivisor === 0) {
+            console.error("Modulo by zero");
+            return;
+          }
+
+          // Perform signed modulo
+          let modResult = modDividend % modDivisor;
+
+          // Convert back to unsigned 16-bit
+          if (modResult < 0) {
+            modResult = modResult + 65536;
+          }
+          modResult = modResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, modResult);
           }
           return;
       }
@@ -1418,6 +1620,9 @@ class ZMachine {
           // Pop and discard top value from user stack
           this.stack.pop();
           return;
+        case 10: // quit
+          // Signal that the game should quit
+          throw new Error("QUIT");
         case 11: // new_line
           if (this.inputOutputDevice) {
             this.inputOutputDevice.writeString("\n");
@@ -1546,17 +1751,24 @@ class ZMachine {
           this.memory.writeUInt8(storebValue, storebAddress);
           return;
         case 4: // sread (read text from keyboard)
-          if (!this.memory || !this.inputOutputDevice) {
-            console.error("Memory or input/output device not loaded");
+          if (!this.memory || !this.inputOutputDevice || !this.header) {
+            console.error("Memory, input/output device, or header not loaded");
             return;
           }
 
           // operands[0]: text buffer address
-          // operands[1]: parse buffer address (for tokenization, not implemented yet)
+          // operands[1]: parse buffer address (for tokenization)
           const textBufferAddr = operands[0];
+          const parseBufferAddr = operands[1];
 
           // Read input from user
           const input = await this.inputOutputDevice.readLine();
+
+          if (this.trace) {
+            console.log(
+              `@sread: textBufferAddr=0x${textBufferAddr.toString(16)}, parseBufferAddr=0x${parseBufferAddr.toString(16)}, input="${input}" (${input.length} chars)`,
+            );
+          }
 
           // In v3, the text buffer format is:
           // byte 0: max length (read-only, set by game)
@@ -1564,8 +1776,16 @@ class ZMachine {
           // byte 2+: the actual text characters
           const maxLen = this.memory.readUInt8(textBufferAddr);
 
+          if (this.trace) {
+            console.log(`@sread: maxLen=${maxLen}`);
+          }
+
           // Truncate input to max length and convert to lowercase
           const text = input.toLowerCase().slice(0, maxLen);
+
+          if (this.trace) {
+            console.log(`@sread: writing length=${text.length} at offset 1`);
+          }
 
           // Write length
           this.memory.writeUInt8(text.length, textBufferAddr + 1);
@@ -1575,10 +1795,33 @@ class ZMachine {
             this.memory.writeUInt8(text.charCodeAt(i), textBufferAddr + 2 + i);
           }
 
+          if (this.trace) {
+            console.log(`@sread: wrote ${text.length} chars: "${text}"`);
+            // Show what's in the buffer
+            const bufferContents = [];
+            for (let i = 0; i < text.length + 3; i++) {
+              bufferContents.push(
+                this.memory
+                  .readUInt8(textBufferAddr + i)
+                  .toString(16)
+                  .padStart(2, "0"),
+              );
+            }
+            console.log(`@sread: buffer contents: ${bufferContents.join(" ")}`);
+          }
+
           // Null-terminate if there's room
           if (text.length < maxLen) {
             this.memory.writeUInt8(0, textBufferAddr + 2 + text.length);
           }
+
+          // Tokenize the input and write to parse buffer
+          // Parse buffer format (v3):
+          // byte 0: max number of tokens (read-only, set by game)
+          // byte 1: number of tokens found (set by interpreter)
+          // byte 2+: token entries (4 bytes each: word addr [2 bytes], length [1 byte], position [1 byte])
+
+          this.tokenize(textBufferAddr, parseBufferAddr);
 
           return;
         case 5: // print_char
@@ -1600,6 +1843,10 @@ class ZMachine {
           } else {
             console.log(signedNum.toString());
           }
+          return;
+        case 8: // push
+          // Push a value onto the user stack
+          this.stack.push(operands[0]);
           return;
       }
     }
@@ -1659,6 +1906,89 @@ class ZMachine {
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
+            }
+          }
+          return;
+        case 2: // jl (jump if less)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jl");
+            return;
+          }
+          // Branch if operand[0] < operand[1] (signed comparison)
+          const jlVarValue1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const jlVarValue2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const jlVarCondition = jlVarValue1 < jlVarValue2;
+          const jlVarShouldBranch = jlVarCondition === branchOnTrue;
+
+          if (jlVarShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
+        case 3: // jg (jump if greater)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jg");
+            return;
+          }
+          // Branch if operand[0] > operand[1] (signed comparison)
+          const jgVarValue1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const jgVarValue2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const jgVarCondition = jgVarValue1 > jgVarValue2;
+          const jgVarShouldBranch = jgVarCondition === branchOnTrue;
+
+          if (jgVarShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              this.pc = this.pc + branchOffset - 2;
             }
           }
           return;
@@ -1851,8 +2181,8 @@ class ZMachine {
       return [5, 6, 13, 15].includes(opcode); // save, restore, verify, piracy
     }
     if (category === "VAR_2OP") {
-      // 2OP in VAR form (0xC0-0xDF) - je is a branch instruction
-      return [1].includes(opcode); // je
+      // 2OP in VAR form (0xC0-0xDF) - je, jl, jg are branch instructions
+      return [1, 2, 3].includes(opcode); // je, jl, jg
     }
     if (category === "VAR") {
       // True VAR form (0xE0-0xFF) - check standard VAR branch instructions
@@ -1907,6 +2237,222 @@ class ZMachine {
       );
     }
     return types;
+  }
+
+  private tokenize(textBufferAddr: number, parseBufferAddr: number) {
+    if (!this.memory || !this.header) return;
+
+    // Read the text from the text buffer
+    const textLength = this.memory.readUInt8(textBufferAddr + 1);
+    const text = [];
+    for (let i = 0; i < textLength; i++) {
+      text.push(this.memory.readUInt8(textBufferAddr + 2 + i));
+    }
+
+    // Get max number of tokens from parse buffer
+    const maxTokens = this.memory.readUInt8(parseBufferAddr);
+
+    // Split input into words (separated by spaces)
+    const tokens: { word: number[]; start: number; length: number }[] = [];
+    let currentWord: number[] = [];
+    let wordStart = 0;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === 32) {
+        // Space - end of word
+        if (currentWord.length > 0) {
+          tokens.push({
+            word: currentWord,
+            start: wordStart,
+            length: currentWord.length,
+          });
+          currentWord = [];
+        }
+      } else {
+        if (currentWord.length === 0) {
+          wordStart = i;
+        }
+        currentWord.push(char);
+      }
+    }
+
+    // Add last word if any
+    if (currentWord.length > 0) {
+      tokens.push({
+        word: currentWord,
+        start: wordStart,
+        length: currentWord.length,
+      });
+    }
+
+    if (this.trace) {
+      console.log(`@tokenize: found ${tokens.length} tokens`);
+      for (const token of tokens) {
+        const wordStr = String.fromCharCode(...token.word);
+        console.log(
+          `  token: "${wordStr}" at position ${token.start}, length ${token.length}`,
+        );
+      }
+    }
+
+    // Look up each word in the dictionary
+    const dictionaryAddr = this.header.dictionaryAddress;
+    const numWordSeparators = this.memory.readUInt8(dictionaryAddr);
+    const entryLength = this.memory.readUInt8(
+      dictionaryAddr + numWordSeparators + 1,
+    );
+    const numEntries = this.memory.readUInt16BE(
+      dictionaryAddr + numWordSeparators + 2,
+    );
+    const firstEntryAddr = dictionaryAddr + numWordSeparators + 4;
+
+    if (this.trace) {
+      console.log(
+        `@tokenize: dictionary at 0x${dictionaryAddr.toString(16)}, ${numEntries} entries, ${entryLength} bytes each`,
+      );
+      // Show first few dictionary entries
+      console.log(`  First 10 dictionary entries:`);
+      for (let i = 0; i < Math.min(10, numEntries); i++) {
+        const entryAddr = firstEntryAddr + i * entryLength;
+        const w1 = this.memory.readUInt16BE(entryAddr);
+        const w2 = this.memory.readUInt16BE(entryAddr + 2);
+        const w3 = this.memory.readUInt16BE(entryAddr + 4);
+        console.log(
+          `    [${i}] @0x${entryAddr.toString(16)}: ${w1.toString(16).padStart(4, "0")} ${w2.toString(16).padStart(4, "0")} ${w3.toString(16).padStart(4, "0")}`,
+        );
+      }
+      // Search for "look", "quit", "yes", "y", "no", "n" in dictionary
+      for (let i = 0; i < numEntries; i++) {
+        const entryAddr = firstEntryAddr + i * entryLength;
+        const w1 = this.memory.readUInt16BE(entryAddr);
+        const w2 = this.memory.readUInt16BE(entryAddr + 2);
+        const w3 = this.memory.readUInt16BE(entryAddr + 4);
+        // Decode to see what word this is
+        const origPC = this.pc;
+        this.pc = entryAddr;
+        const decoded = this.decodeZSCII(false);
+        this.pc = origPC;
+        if (["look", "quit", "yes", "y", "no", "n"].includes(decoded)) {
+          console.log(
+            `  Found "${decoded}" at entry ${i} @0x${entryAddr.toString(16)}: ${w1.toString(16).padStart(4, "0")} ${w2.toString(16).padStart(4, "0")} ${w3.toString(16).padStart(4, "0")}`,
+          );
+        }
+      }
+    }
+
+    // Write number of tokens found
+    const actualTokens = Math.min(tokens.length, maxTokens);
+    this.memory.writeUInt8(actualTokens, parseBufferAddr + 1);
+
+    // Write each token entry
+    for (let i = 0; i < actualTokens; i++) {
+      const token = tokens[i];
+
+      // Encode the word to ZSCII (up to 6 characters for v3)
+      const encodedWord = this.encodeWord(token.word);
+
+      // Look up in dictionary
+      // In v3 dictionaries, only compare the encoded words (not the metadata in unused words)
+      // The encoded word ends at the word with the high bit set
+      let dictAddr = 0;
+      for (let j = 0; j < numEntries; j++) {
+        const entryAddr = firstEntryAddr + j * entryLength;
+        const entry1 = this.memory.readUInt16BE(entryAddr);
+        const entry2 = this.memory.readUInt16BE(entryAddr + 2);
+        const entry3 = this.memory.readUInt16BE(entryAddr + 4);
+
+        // In v3, always compare 2 words (dictionary entries are fixed at 2 words)
+        if (entry1 === encodedWord[0] && entry2 === encodedWord[1]) {
+          dictAddr = entryAddr;
+          break;
+        }
+      }
+
+      if (this.trace && dictAddr > 0) {
+        console.log(
+          `  found "${String.fromCharCode(...token.word)}" in dictionary at 0x${dictAddr.toString(16)}`,
+        );
+      } else if (this.trace) {
+        console.log(
+          `  "${String.fromCharCode(...token.word)}" not found in dictionary`,
+        );
+      }
+
+      // Write token entry (4 bytes: dict addr [2], length [1], position [1])
+      const tokenEntryAddr = parseBufferAddr + 2 + i * 4;
+      this.memory.writeUInt16BE(dictAddr, tokenEntryAddr);
+      this.memory.writeUInt8(token.length, tokenEntryAddr + 2);
+      this.memory.writeUInt8(token.start + 1, tokenEntryAddr + 3); // Position is 1-indexed
+    }
+  }
+
+  private encodeWord(chars: number[]): [number, number, number] {
+    // Encode a word (array of ZSCII chars) into Z-machine format (3 words for v3)
+    // Each word holds 3 z-characters (5 bits each)
+    const A0 = "abcdefghijklmnopqrstuvwxyz";
+    const A1 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const A2 = " \n0123456789.,!?_#'\"/\\-:()";
+
+    const zchars: number[] = [];
+
+    // Process characters until we have 9 z-chars or run out of input
+    for (let i = 0; i < chars.length && zchars.length < 9; i++) {
+      const char = String.fromCharCode(chars[i]);
+      let idx = A0.indexOf(char);
+      if (idx >= 0) {
+        zchars.push(idx + 6);
+      } else {
+        idx = A1.indexOf(char);
+        if (idx >= 0) {
+          zchars.push(4); // Shift to A1
+          zchars.push(idx + 6);
+        } else {
+          idx = A2.indexOf(char);
+          if (idx >= 0) {
+            zchars.push(5); // Shift to A2
+            zchars.push(idx + 6);
+          } else {
+            // Unknown character - use ZSCII escape
+            zchars.push(5);
+            zchars.push(6);
+            zchars.push((chars[i] >> 5) & 0x1f);
+            zchars.push(chars[i] & 0x1f);
+          }
+        }
+      }
+    }
+
+    // In v3, dictionary entries are typically 6 z-chars (2 words)
+    // Pad to 6 z-characters with 5s
+    while (zchars.length < 6) {
+      zchars.push(5);
+    }
+
+    // Truncate to 6 for v3 (some games use 9 for v4+)
+    if (zchars.length > 6) {
+      zchars.length = 6;
+    }
+
+    if (this.trace) {
+      const wordStr = String.fromCharCode(...chars);
+      console.log(`  encodeWord("${wordStr}"): zchars=[${zchars.join(",")}]`);
+    }
+
+    // Pack into 2 words for v3 (6 z-chars)
+    const word1 = (zchars[0] << 10) | (zchars[1] << 5) | zchars[2];
+    const word2 = (zchars[3] << 10) | (zchars[4] << 5) | zchars[5];
+
+    // Set high bit on the second word to mark end
+    const finalWord2 = word2 | 0x8000;
+
+    if (this.trace) {
+      console.log(
+        `  encoded as: ${word1.toString(16).padStart(4, "0")} ${finalWord2.toString(16).padStart(4, "0")} 0000`,
+      );
+    }
+
+    return [word1, finalWord2, 0];
   }
 
   decodeZSCII(abbreviations: boolean = true): string {

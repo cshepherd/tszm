@@ -81,6 +81,10 @@ async function main() {
       await zm.executeInstruction();
     }
   } catch (err) {
+    if (err instanceof Error && err.message === "QUIT") {
+      console.log("\nGame quit.");
+      process.exit(0);
+    }
     console.error("Error:", err);
   }
 }
