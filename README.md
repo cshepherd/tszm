@@ -12,4 +12,4 @@
 3-Oct-2025: Leather Goddesses is playable, some jankiness is expected, but focus is now shifting to ZMCDN which will add Sixel graphics output to the tszm.ts terminal output.
 
 ## Credits
-- All code by Christopher Shepherd <moi@cshepherd.fr>
+- All code by Christopher Shepherd <node@js.contractors>
