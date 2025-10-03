@@ -29,6 +29,7 @@ class ZMachine {
   private stack: number[] = []; // User stack (variable 0)
   private callStack: number[] = []; // Call frame stack (return addresses, store vars)
   private currentContext: number = 0;
+  private localVariables: number[] = []; // Current routine's local variables
   private trace: boolean = false; // Enable debug logging
 
   constructor(
@@ -87,15 +88,13 @@ class ZMachine {
   }
 
   getLocalVariableValue(variableNumber: number): any {
-    const memLocation = this.currentContext + 1 + (variableNumber - 1) * 2;
-
-    return this.memory?.readUInt16BE(memLocation);
+    // Local variables are 1-indexed, array is 0-indexed
+    return this.localVariables[variableNumber - 1];
   }
 
   setLocalVariableValue(variableNumber: number, value: number): any {
-    const memLocation = this.currentContext + 1 + (variableNumber - 1) * 2;
-
-    return this.memory?.writeUInt16BE(value, memLocation);
+    // Local variables are 1-indexed, array is 0-indexed
+    this.localVariables[variableNumber - 1] = value;
   }
 
   getVariableValue(variableNumber: number): any {
@@ -231,22 +230,34 @@ class ZMachine {
               const returnValue = branchOffset;
               if (this.trace) {
                 console.log(
-                  `@je branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-5)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
+                  `@je branch return ${returnValue}, callStack size=${this.callStack.length}`,
                 );
               }
               const frameMarker = this.callStack.pop();
+              if (this.trace) {
+                console.log(`  Popped frameMarker=${frameMarker}`);
+              }
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              if (this.trace) {
+                console.log(`  Popped savedLocalCount=${savedLocalCount}`);
+              }
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
               let returnStoreVar: number | undefined;
               if (frameMarker === 1) {
                 returnStoreVar = this.callStack.pop();
+                if (this.trace) {
+                  console.log(`  Popped returnStoreVar=${returnStoreVar}`);
+                }
               }
               const returnPC = this.callStack.pop();
               if (this.trace) {
-                console.log(
-                  `@je Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
+                console.log(`  Popped returnPC=${returnPC?.toString(16)}`);
               }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
@@ -281,12 +292,33 @@ class ZMachine {
           if (shouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-10)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
               const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
               let returnStoreVar: number | undefined;
               if (frameMarker === 1) {
                 returnStoreVar = this.callStack.pop();
               }
               const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -337,8 +369,62 @@ class ZMachine {
           if (attrShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
-              const returnStoreVar = this.stack.pop();
-              const returnPC = this.stack.pop();
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
+        case 2: // jl (jump if less)
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for jl");
+            return;
+          }
+          // Branch if operand[0] < operand[1] (signed comparison)
+          const jlValue1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const jlValue2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const jlCondition = jlValue1 < jlValue2;
+          const jlShouldBranch = jlCondition === branchOnTrue;
+
+          if (jlShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -367,8 +453,20 @@ class ZMachine {
           if (jgShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
-              const returnStoreVar = this.stack.pop();
-              const returnPC = this.stack.pop();
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -378,6 +476,45 @@ class ZMachine {
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
+            }
+          }
+          return;
+        case 7: // test
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for test");
+            return;
+          }
+          // Test if all bits set in operand[1] are also set in operand[0]
+          const testBitmap = operands[0];
+          const testFlags = operands[1];
+          const testCondition = (testBitmap & testFlags) === testFlags;
+          const testShouldBranch = testCondition === branchOnTrue;
+
+          if (testShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              this.pc = this.pc + branchOffset - 2;
             }
           }
           return;
@@ -419,12 +556,33 @@ class ZMachine {
           if (jinShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-10)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
               const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
               let returnStoreVar: number | undefined;
               if (frameMarker === 1) {
                 returnStoreVar = this.callStack.pop();
               }
               const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -433,7 +591,7 @@ class ZMachine {
               }
             } else {
               // Normal branch: offset is relative to current PC
-              this.pc = this.pc + branchOffset;
+              this.pc = this.pc + branchOffset - 2;
             }
           }
           return;
@@ -723,6 +881,44 @@ class ZMachine {
             this.setVariableValue(storeVariable, getPropAddrResult);
           }
           return;
+        case 20: // add
+          // Signed 16-bit addition
+          const addOperand1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const addOperand2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          let addResult = addOperand1 + addOperand2;
+
+          // Convert back to unsigned 16-bit
+          if (addResult < 0) {
+            addResult = addResult + 65536;
+          }
+          addResult = addResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, addResult);
+          }
+          return;
+        case 21: // sub
+          // Signed 16-bit subtraction
+          const subOperand1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const subOperand2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          let subResult = subOperand1 - subOperand2;
+
+          // Convert back to unsigned 16-bit
+          if (subResult < 0) {
+            subResult = subResult + 65536;
+          }
+          subResult = subResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, subResult);
+          }
+          return;
         case 23: // div
           // Signed 16-bit division
           const divDividend =
@@ -767,8 +963,20 @@ class ZMachine {
             if (branchOffset === 0 || branchOffset === 1) {
               // Special values: return false or true
               const returnValue = branchOffset;
-              const returnStoreVar = this.stack.pop();
-              const returnPC = this.stack.pop();
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -828,12 +1036,33 @@ class ZMachine {
           if (getSiblingShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-10)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
               const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
               let returnStoreVar: number | undefined;
               if (frameMarker === 1) {
                 returnStoreVar = this.callStack.pop();
               }
               const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -888,12 +1117,33 @@ class ZMachine {
           if (getChildShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@branch return ${returnValue}, callStack: [${this.callStack
+                    .slice(-10)
+                    .map((v) => v.toString(16))
+                    .join(", ")}]`,
+                );
+              }
               const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
               let returnStoreVar: number | undefined;
               if (frameMarker === 1) {
                 returnStoreVar = this.callStack.pop();
               }
               const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
               if (returnPC !== undefined) {
                 this.pc = returnPC;
                 if (returnStoreVar !== undefined) {
@@ -938,6 +1188,10 @@ class ZMachine {
             this.setVariableValue(storeVariable, getParentValue);
           }
           return;
+        case 5: // inc (increment variable)
+          const varValue = this.getVariableValue(operands[0]);
+          this.setVariableValue(operands[0], varValue + 1);
+          return;
         case 6: // dec (decrement variable)
           const currentValue = this.getVariableValue(operands[0]);
           this.setVariableValue(operands[0], currentValue - 1);
@@ -978,6 +1232,54 @@ class ZMachine {
             operands[0] > 32767 ? operands[0] - 65536 : operands[0];
           this.pc = this.pc + jumpOffset - 2;
           return;
+        case 11: // ret
+          // Return with specified value
+          const retValue = operands[0];
+          if (this.trace) {
+            console.log(
+              `@ret returning ${retValue}, callStack size=${this.callStack.length}`,
+            );
+          }
+          const retFrameMarker = this.callStack.pop();
+          if (this.trace) {
+            console.log(`  Popped frameMarker=${retFrameMarker}`);
+          }
+
+          // Restore saved local variables
+          const retLocalCount = this.callStack.pop();
+          if (this.trace) {
+            console.log(`  Popped savedLocalCount=${retLocalCount}`);
+          }
+          this.localVariables = [];
+          for (let i = 0; i < (retLocalCount || 0); i++) {
+            this.localVariables.unshift(this.callStack.pop() || 0);
+          }
+
+          let retStoreVar: number | undefined;
+          if (retFrameMarker === 1) {
+            retStoreVar = this.callStack.pop();
+            if (this.trace) {
+              console.log(`  Popped returnStoreVar=${retStoreVar}`);
+            }
+          }
+          const retReturnPC = this.callStack.pop();
+          if (this.trace) {
+            console.log(`  Popped returnPC=${retReturnPC?.toString(16)}`);
+          }
+          if (retReturnPC !== undefined) {
+            this.pc = retReturnPC;
+            if (retStoreVar !== undefined) {
+              this.setVariableValue(retStoreVar, retValue);
+            }
+          }
+          return;
+        case 7: // print_addr
+          // Print string at byte address (not packed address)
+          const printAddrOrigPC = this.pc;
+          this.pc = operands[0];
+          this.print();
+          this.pc = printAddrOrigPC;
+          return;
         case 13: // print_paddr
           const stringAddr = operands[0] * 2;
           const origPC = this.pc;
@@ -1002,6 +1304,14 @@ class ZMachine {
                 .join(", ")}]`,
             );
           }
+
+          // Restore saved local variables
+          const savedLocalCount = this.callStack.pop();
+          this.localVariables = [];
+          for (let i = 0; i < (savedLocalCount || 0); i++) {
+            this.localVariables.unshift(this.callStack.pop() || 0);
+          }
+
           let returnStoreVar: number | undefined;
           if (frameMarker === 1) {
             returnStoreVar = this.callStack.pop();
@@ -1009,7 +1319,7 @@ class ZMachine {
           const returnPC = this.callStack.pop();
           if (this.trace) {
             console.log(
-              `@rtrue Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+              `@rtrue Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}, restoredLocals=${savedLocalCount}`,
             );
           }
           if (returnPC !== undefined) {
@@ -1022,6 +1332,14 @@ class ZMachine {
         case 1: // rfalse
           const rfalseReturnValue = 0;
           const rfalseFrameMarker = this.callStack.pop();
+
+          // Restore saved local variables
+          const rfalseLocalCount = this.callStack.pop();
+          this.localVariables = [];
+          for (let i = 0; i < (rfalseLocalCount || 0); i++) {
+            this.localVariables.unshift(this.callStack.pop() || 0);
+          }
+
           let rfalseReturnStoreVar: number | undefined;
           if (rfalseFrameMarker === 1) {
             rfalseReturnStoreVar = this.callStack.pop();
@@ -1036,6 +1354,62 @@ class ZMachine {
           return;
         case 2: // print
           this.print();
+          return;
+        case 3: // print_ret
+          // Print a string followed by newline, then return true
+          this.print();
+          if (this.inputOutputDevice) {
+            this.inputOutputDevice.writeString("\n");
+          } else {
+            console.log("\n");
+          }
+
+          // Return true (1)
+          const printRetValue = 1;
+          const printRetFrameMarker = this.callStack.pop();
+
+          // Restore saved local variables
+          const printRetLocalCount = this.callStack.pop();
+          this.localVariables = [];
+          for (let i = 0; i < (printRetLocalCount || 0); i++) {
+            this.localVariables.unshift(this.callStack.pop() || 0);
+          }
+
+          let printRetStoreVar: number | undefined;
+          if (printRetFrameMarker === 1) {
+            printRetStoreVar = this.callStack.pop();
+          }
+          const printRetPC = this.callStack.pop();
+          if (printRetPC !== undefined) {
+            this.pc = printRetPC;
+            if (printRetStoreVar !== undefined) {
+              this.setVariableValue(printRetStoreVar, printRetValue);
+            }
+          }
+          return;
+        case 8: // ret_popped
+          // Return with value popped from user stack
+          const retPoppedValue = this.stack.pop() || 0;
+          const retPoppedFrameMarker = this.callStack.pop();
+
+          // Restore saved local variables
+          const retPoppedLocalCount = this.callStack.pop();
+          this.localVariables = [];
+          for (let i = 0; i < (retPoppedLocalCount || 0); i++) {
+            this.localVariables.unshift(this.callStack.pop() || 0);
+          }
+
+          let retPoppedStoreVar: number | undefined;
+          if (retPoppedFrameMarker === 1) {
+            retPoppedStoreVar = this.callStack.pop();
+          }
+          const retPoppedPC = this.callStack.pop();
+          if (retPoppedPC !== undefined) {
+            this.pc = retPoppedPC;
+            if (retPoppedStoreVar !== undefined) {
+              this.setVariableValue(retPoppedStoreVar, retPoppedValue);
+            }
+          }
           return;
         case 11: // new_line
           if (this.inputOutputDevice) {
@@ -1077,24 +1451,27 @@ class ZMachine {
           }
 
           // Save return info on call stack
-          // Format: [return PC] [storeVariable (if exists)] [frame marker]
-          // Frame marker: bit 0 indicates if storeVariable was pushed
+          // Format: [return PC] [storeVariable (if exists)] [saved locals] [local count] [frame marker]
+          // Frame marker bits: bit 0 = has store variable
           this.callStack.push(this.pc);
           if (storeVariable !== undefined) {
             this.callStack.push(storeVariable);
-            this.callStack.push(1); // Frame marker: has store variable
-            if (this.trace) {
-              console.log(
-                `@call Pushed: returnPC=${this.pc.toString(16)}, storeVar=${storeVariable}, marker=1`,
-              );
-            }
-          } else {
-            this.callStack.push(0); // Frame marker: no store variable
-            if (this.trace) {
-              console.log(
-                `@call Pushed: returnPC=${this.pc.toString(16)}, marker=0`,
-              );
-            }
+          }
+
+          // Save current local variables
+          const savedLocalCount = this.localVariables.length;
+          for (let i = 0; i < savedLocalCount; i++) {
+            this.callStack.push(this.localVariables[i]);
+          }
+          this.callStack.push(savedLocalCount);
+
+          const frameMarker = storeVariable !== undefined ? 1 : 0;
+          this.callStack.push(frameMarker);
+
+          if (this.trace) {
+            console.log(
+              `@call Pushed: returnPC=${this.pc.toString(16)}, storeVar=${storeVariable}, savedLocals=${savedLocalCount}, marker=${frameMarker}`,
+            );
           }
 
           // Set up new routine context
@@ -1103,25 +1480,33 @@ class ZMachine {
           const localVarCount = this.memory.readUInt8(newPC);
           newPC++;
 
+          // Initialize local variables array
+          this.localVariables = [];
+
           // In versions 1-4, read initial values for local variables
           // In versions 5+, locals are initialized to 0
           if (this.header.version <= 4) {
-            // Skip over the initial values (we'll set them below)
-            newPC += localVarCount * 2;
-          }
+            // Version 1-4: initial values are in the story file
+            for (let i = 0; i < localVarCount; i++) {
+              const initialValue = this.memory.readUInt16BE(newPC);
+              newPC += 2;
 
-          // Initialize local variables with arguments or default values
-          for (let i = 0; i < localVarCount; i++) {
-            const localVarAddress = this.currentContext + 1 + i * 2;
-
-            if (i < operands.length - 1) {
-              // Use argument value (operands[i+1] since operands[0] is routine address)
-              this.memory.writeUInt16BE(operands[i + 1], localVarAddress);
-            } else if (this.header.version <= 4) {
-              // Keep the initial value already in memory (do nothing)
-            } else {
-              // Version 5+: initialize to 0
-              this.memory.writeUInt16BE(0, localVarAddress);
+              if (i < operands.length - 1) {
+                // Use argument value (operands[i+1] since operands[0] is routine address)
+                this.localVariables[i] = operands[i + 1];
+              } else {
+                // Use the initial value from the story file
+                this.localVariables[i] = initialValue;
+              }
+            }
+          } else {
+            // Version 5+: no initial values in story file, initialize based on arguments
+            for (let i = 0; i < localVarCount; i++) {
+              if (i < operands.length - 1) {
+                this.localVariables[i] = operands[i + 1];
+              } else {
+                this.localVariables[i] = 0;
+              }
             }
           }
 
@@ -1149,13 +1534,18 @@ class ZMachine {
                 const returnValue = branchOffset;
                 if (this.trace) {
                   console.log(
-                    `@je(VAR) branch return ${returnValue}, callStack: [${this.callStack
-                      .slice(-5)
-                      .map((v) => v.toString(16))
-                      .join(", ")}]`,
+                    `@je(VAR) branch return ${returnValue}, callStack len=${this.callStack.length}, all: [${this.callStack.map((v) => v.toString(16)).join(", ")}]`,
                   );
                 }
                 const frameMarker = this.callStack.pop();
+
+                // Restore saved local variables
+                const savedLocalCount = this.callStack.pop();
+                this.localVariables = [];
+                for (let i = 0; i < (savedLocalCount || 0); i++) {
+                  this.localVariables.unshift(this.callStack.pop() || 0);
+                }
+
                 let returnStoreVar: number | undefined;
                 if (frameMarker === 1) {
                   returnStoreVar = this.callStack.pop();
@@ -1163,7 +1553,7 @@ class ZMachine {
                 const returnPC = this.callStack.pop();
                 if (this.trace) {
                   console.log(
-                    `@je(VAR) Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                    `@je(VAR) Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
                   );
                 }
                 if (returnPC !== undefined) {
