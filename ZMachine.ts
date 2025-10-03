@@ -1,7 +1,6 @@
 // Node-compatible Z-machine file I/O (TypeScript)
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
 import { readFile } from "fs/promises";
-import { createInterface } from "readline";
 
 type zMachineHeader = {
   version: number; // target z-machine version
@@ -49,19 +48,19 @@ class ZMachine {
     this.header = {
       version: buffer.readUInt8(0),
       release: buffer.readUInt16BE(2),
-      serial: buffer.toString("ascii", 18, 24).replace(/\0/g, ""),
-      checksum: buffer.readUInt16BE(14),
+      serial: buffer.toString("ascii", 0x12, 0x18).replace(/\0/g, ""), // 0x12-0x17
+      checksum: buffer.readUInt16BE(0x1c),
       initialProgramCounter: buffer.readUInt16BE(6),
       dictionaryAddress: buffer.readUInt16BE(8),
       objectTableAddress: buffer.readUInt16BE(10),
       globalVariablesAddress: buffer.readUInt16BE(12),
-      staticMemoryAddress: buffer.readUInt16BE(16),
-      dynamicMemoryAddress: buffer.readUInt16BE(18),
-      highMemoryAddress: buffer.readUInt16BE(20),
-      abbreviationsAddress: buffer.readUInt16BE(24),
-      fileLength: buffer.readUInt16BE(26) * 2,
+      staticMemoryAddress: buffer.readUInt16BE(0x0e),
+      dynamicMemoryAddress: buffer.readUInt16BE(0x04), // High memory base
+      highMemoryAddress: buffer.readUInt16BE(0x04), // High memory base (same as dynamic)
+      abbreviationsAddress: buffer.readUInt16BE(0x18),
+      fileLength: buffer.readUInt16BE(0x1a) * 2,
       checksumValid: false,
-      alphabetIdentifier: buffer.readUInt16BE(52),
+      alphabetIdentifier: buffer.readUInt16BE(0x34), // 0x34 for v5+, may not exist in v3
     };
   }
 
@@ -129,6 +128,10 @@ class ZMachine {
     return this.header;
   }
 
+  setTrace(enabled: boolean) {
+    this.trace = enabled;
+  }
+
   async close() {
     if (this.fileHandle) {
       await this.fileHandle.close();
@@ -148,7 +151,7 @@ class ZMachine {
     }
   }
 
-  executeInstruction() {
+  async executeInstruction() {
     if (!this.memory) {
       console.error("Memory not loaded");
       return;
@@ -180,7 +183,7 @@ class ZMachine {
 
     this.advancePC(bytesRead);
 
-    this.executeOpcode(
+    await this.executeOpcode(
       category,
       opcodeNumber,
       operands,
@@ -191,7 +194,7 @@ class ZMachine {
     );
   }
 
-  private executeOpcode(
+  private async executeOpcode(
     category: string,
     opcode: number,
     operands: number[],
@@ -1411,6 +1414,10 @@ class ZMachine {
             }
           }
           return;
+        case 9: // pop
+          // Pop and discard top value from user stack
+          this.stack.pop();
+          return;
         case 11: // new_line
           if (this.inputOutputDevice) {
             this.inputOutputDevice.writeString("\n");
@@ -1512,80 +1519,67 @@ class ZMachine {
 
           this.pc = newPC;
           return;
-        case 1: // je (v1-4) / call_vs (v5+)
-          if (this.header && this.header.version <= 4) {
-            // Version 1-4: je (jump if equal) with multiple operands
-            if (branchOffset === undefined || branchOnTrue === undefined) {
-              console.error("Branch information missing for je");
-              return;
-            }
-            const jeVarTestValue = operands[0];
-            let jeVarCondition = false;
-            for (let i = 1; i < operands.length; i++) {
-              if (jeVarTestValue === operands[i]) {
-                jeVarCondition = true;
-                break;
-              }
-            }
-            const jeVarShouldBranch = jeVarCondition === branchOnTrue;
-
-            if (jeVarShouldBranch) {
-              if (branchOffset === 0 || branchOffset === 1) {
-                const returnValue = branchOffset;
-                if (this.trace) {
-                  console.log(
-                    `@je(VAR) branch return ${returnValue}, callStack len=${this.callStack.length}, all: [${this.callStack.map((v) => v.toString(16)).join(", ")}]`,
-                  );
-                }
-                const frameMarker = this.callStack.pop();
-
-                // Restore saved local variables
-                const savedLocalCount = this.callStack.pop();
-                this.localVariables = [];
-                for (let i = 0; i < (savedLocalCount || 0); i++) {
-                  this.localVariables.unshift(this.callStack.pop() || 0);
-                }
-
-                let returnStoreVar: number | undefined;
-                if (frameMarker === 1) {
-                  returnStoreVar = this.callStack.pop();
-                }
-                const returnPC = this.callStack.pop();
-                if (this.trace) {
-                  console.log(
-                    `@je(VAR) Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                  );
-                }
-                if (returnPC !== undefined) {
-                  this.pc = returnPC;
-                  if (returnStoreVar !== undefined) {
-                    this.setVariableValue(returnStoreVar, returnValue);
-                  }
-                }
-              } else {
-                const newPC = this.pc + branchOffset - 2;
-                this.pc = newPC;
-              }
-            }
-          } else {
-            // Version 5+: call_vs
-            const calledRoutineVs = operands[0].toString(16);
-            const argsVs = operands.slice(1).map((a) => a.toString(16));
-            console.log(
-              `@call Calling routine at ${calledRoutineVs} with args ${argsVs}`,
-            );
-            this.stack.push(this.pc);
-            this.pc = operands[0];
+        case 1: // storew
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
           }
+          // storew array word-index value
+          // Stores word at address (array + 2*word-index)
+          const storewArrayAddress = operands[0];
+          const storewWordIndex = operands[1];
+          const storewValue = operands[2];
+          const storewAddress = storewArrayAddress + 2 * storewWordIndex;
+          this.memory.writeUInt16BE(storewValue, storewAddress);
           return;
-        case 4: // sread
-          const rl = createInterface({
-            input: process.stdin,
-            output: process.stdout,
-          });
-          rl.question("", () => {
-            rl.close();
-          });
+        case 2: // storeb
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
+          }
+          // storeb array byte-index value
+          // Stores byte at address (array + byte-index)
+          const storebArrayAddress = operands[0];
+          const storebByteIndex = operands[1];
+          const storebValue = operands[2];
+          const storebAddress = storebArrayAddress + storebByteIndex;
+          this.memory.writeUInt8(storebValue, storebAddress);
+          return;
+        case 4: // sread (read text from keyboard)
+          if (!this.memory || !this.inputOutputDevice) {
+            console.error("Memory or input/output device not loaded");
+            return;
+          }
+
+          // operands[0]: text buffer address
+          // operands[1]: parse buffer address (for tokenization, not implemented yet)
+          const textBufferAddr = operands[0];
+
+          // Read input from user
+          const input = await this.inputOutputDevice.readLine();
+
+          // In v3, the text buffer format is:
+          // byte 0: max length (read-only, set by game)
+          // byte 1: number of characters read (set by interpreter)
+          // byte 2+: the actual text characters
+          const maxLen = this.memory.readUInt8(textBufferAddr);
+
+          // Truncate input to max length and convert to lowercase
+          const text = input.toLowerCase().slice(0, maxLen);
+
+          // Write length
+          this.memory.writeUInt8(text.length, textBufferAddr + 1);
+
+          // Write characters
+          for (let i = 0; i < text.length; i++) {
+            this.memory.writeUInt8(text.charCodeAt(i), textBufferAddr + 2 + i);
+          }
+
+          // Null-terminate if there's room
+          if (text.length < maxLen) {
+            this.memory.writeUInt8(0, textBufferAddr + 2 + text.length);
+          }
+
           return;
         case 5: // print_char
           // Print a ZSCII character
@@ -1607,6 +1601,73 @@ class ZMachine {
             console.log(signedNum.toString());
           }
           return;
+      }
+    }
+
+    // VAR_2OP opcodes (2OP in VAR form, 0xC0-0xDF)
+    if (category === "VAR_2OP") {
+      switch (opcode) {
+        case 1: // je (jump if equal with multiple operands)
+          // je (jump if equal) with multiple operands
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for je");
+            return;
+          }
+          const jeVarTestValue = operands[0];
+          let jeVarCondition = false;
+          for (let i = 1; i < operands.length; i++) {
+            if (jeVarTestValue === operands[i]) {
+              jeVarCondition = true;
+              break;
+            }
+          }
+          const jeVarShouldBranch = jeVarCondition === branchOnTrue;
+
+          if (jeVarShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              if (this.trace) {
+                console.log(
+                  `@je(VAR_2OP) branch return ${returnValue}, callStack len=${this.callStack.length}`,
+                );
+              }
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (this.trace) {
+                console.log(
+                  `@je(VAR_2OP) Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
+                );
+              }
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
+        case 8: // or
+          const orResult = operands[0] | operands[1];
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, orResult);
+          }
+          return;
         case 9: // and
           const andResult = operands[0] & operands[1];
           if (storeVariable !== undefined) {
@@ -1615,6 +1676,9 @@ class ZMachine {
           return;
       }
     }
+
+    // True VAR opcodes (0xE0-0xFF) - these should already be in the VAR section above
+    // The sread, print_char, print_num opcodes belong to true VAR form
 
     console.error(`No handler for opcode ${key}`);
   }
@@ -1656,11 +1720,18 @@ class ZMachine {
     // Variable form (top 2 bits = 11)
     else if ((firstByte & 0b11000000) === 0b11000000) {
       opcodeNumber = firstByte & 0b00011111;
-      category = "VAR";
+      // Distinguish between 2OP in VAR form (0xC0-0xDF) and true VAR form (0xE0-0xFF)
+      if (firstByte >= 0xe0 && firstByte <= 0xff) {
+        category = "VAR";
+        if (this.trace) console.log(`  -> Variable form: VAR:${opcodeNumber}`);
+      } else {
+        category = "VAR_2OP";
+        if (this.trace)
+          console.log(`  -> Variable 2OP form: VAR_2OP:${opcodeNumber}`);
+      }
       // VAR form always reads operand types from the next byte
       operandTypes = this.parseOperandTypes(this.memory.readUInt8(this.pc + 1));
       offset = 2;
-      if (this.trace) console.log(`  -> Variable form: VAR:${opcodeNumber}`);
     }
     // Short form (top 2 bits = 10)
     else if ((firstByte & 0b11000000) === 0b10000000) {
@@ -1711,7 +1782,11 @@ class ZMachine {
 
     // Check if this is a store instruction and read the store variable
     let storeVariable: number | undefined;
-    const isStoreInstruction = this.isStoreInstruction(category, opcodeNumber);
+    const isStoreInstruction = this.isStoreInstruction(
+      category,
+      opcodeNumber,
+      firstByte,
+    );
     if (isStoreInstruction) {
       storeVariable = this.memory.readUInt8(this.pc + offset);
       offset += 1;
@@ -1723,6 +1798,7 @@ class ZMachine {
     const isBranchInstruction = this.isBranchInstruction(
       category,
       opcodeNumber,
+      firstByte,
     );
     if (isBranchInstruction) {
       const branchByte = this.memory.readUInt8(this.pc + offset);
@@ -1759,7 +1835,11 @@ class ZMachine {
     };
   }
 
-  private isBranchInstruction(category: string, opcode: number): boolean {
+  private isBranchInstruction(
+    category: string,
+    opcode: number,
+    firstByte: number,
+  ): boolean {
     // List of branch instructions by category
     if (category === "1OP") {
       return [0, 1, 2].includes(opcode); // jz, get_sibling, get_child
@@ -1770,24 +1850,30 @@ class ZMachine {
     if (category === "0OP") {
       return [5, 6, 13, 15].includes(opcode); // save, restore, verify, piracy
     }
+    if (category === "VAR_2OP") {
+      // 2OP in VAR form (0xC0-0xDF) - je is a branch instruction
+      return [1].includes(opcode); // je
+    }
     if (category === "VAR") {
-      // VAR:1 is je (branch) in v1-4, call_vs (store) in v5+
-      if (opcode === 1 && this.header && this.header.version <= 4) {
-        return true;
-      }
+      // True VAR form (0xE0-0xFF) - check standard VAR branch instructions
       return [17, 19, 20].includes(opcode); // scan_table, check_arg_count, call_vn (v5+)
     }
     return false;
   }
 
-  private isStoreInstruction(category: string, opcode: number): boolean {
+  private isStoreInstruction(
+    category: string,
+    opcode: number,
+    firstByte: number,
+  ): boolean {
     // List of store instructions by category
+    if (category === "VAR_2OP") {
+      // 2OP in VAR form (0xC0-0xDF) - or and and are store instructions
+      return [8, 9].includes(opcode); // or, and
+    }
     if (category === "VAR") {
-      // VAR:1 is je (branch) in v1-4, call_vs (store) in v5+
-      if (opcode === 1 && this.header && this.header.version <= 4) {
-        return false; // je is not a store instruction
-      }
-      return [0, 1, 7, 8, 9].includes(opcode); // call, call_vs, call_vn2, or, and
+      // True VAR form (0xE0-0xFF) - call (opcode 0) is a store instruction
+      return [0].includes(opcode); // call
     }
     if (category === "2OP") {
       return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(
@@ -1841,6 +1927,7 @@ class ZMachine {
     }
 
     do {
+      const wordAddr = this.pc;
       const firstByte = this.memory.readUInt8(this.pc);
       const secondByte = this.memory.readUInt8(this.pc + 1);
       this.advancePC(2);
@@ -1855,17 +1942,62 @@ class ZMachine {
       }
 
       for (let zchar of zchars) {
+        // Handle ZSCII escape sequence states first (abbrev1 = -2 or -3)
+        if (abbrev1 === -2) {
+          // Reading top 5 bits of ZSCII code
+          abbrev2 = zchar;
+          abbrev1 = -3;
+          continue;
+        }
+
+        if (abbrev1 === -3) {
+          // Reading bottom 5 bits of ZSCII code
+          const zsciiCode = (abbrev2 << 5) | zchar;
+          result += String.fromCharCode(zsciiCode);
+          abbrev1 = -1;
+          abbrev2 = -1;
+          // Restore the alphabet if we were in a shift
+          if (oneShift !== false) {
+            currentTable = oneShift;
+            oneShift = false;
+          }
+          continue;
+        }
+
+        // If we're expecting the second part of an abbreviation
         if (abbrev1 > -1) {
           if (this.header) {
             abbrev2 = zchar;
 
             const abbreviationNumber = 32 * abbrev1 + abbrev2;
+            const abbrevTableAddr =
+              this.header.abbreviationsAddress + abbreviationNumber * 2;
+            const abbrevTableEntry = this.memory.readUInt16BE(abbrevTableAddr);
+            const abbrevStringAddr = abbrevTableEntry * 2;
+
+            if (this.trace) {
+              console.log(
+                `    Abbreviation ${abbrev1}:${abbrev2} (num=${abbreviationNumber}) abbrevAddr=${this.header.abbreviationsAddress} calc: ${this.header.abbreviationsAddress}+${abbreviationNumber}*2=${abbrevTableAddr} (0x${abbrevTableAddr.toString(16)}) entry=${abbrevTableEntry.toString(16)} stringAddr=${abbrevStringAddr.toString(16)}`,
+              );
+            }
+
             const origPC = this.pc;
-            this.pc =
-              this.memory.readUint16BE(
-                this.header?.abbreviationsAddress + abbreviationNumber * 2,
-              ) * 2;
-            result += this.decodeZSCII(false);
+            this.pc = abbrevStringAddr;
+
+            // Debug: show first few bytes at abbreviation string address
+            if (this.trace) {
+              const b1 = this.memory.readUInt8(abbrevStringAddr);
+              const b2 = this.memory.readUInt8(abbrevStringAddr + 1);
+              console.log(
+                `    Reading abbrev string from 0x${abbrevStringAddr.toString(16)}: bytes ${b1.toString(16).padStart(2, "0")} ${b2.toString(16).padStart(2, "0")}`,
+              );
+            }
+
+            const abbrevText = this.decodeZSCII(false);
+            if (this.trace) {
+              console.log(`    Abbreviation expanded to: "${abbrevText}"`);
+            }
+            result += abbrevText;
             this.pc = origPC;
 
             abbrev1 = -1;
@@ -1873,27 +2005,58 @@ class ZMachine {
             continue;
           }
         }
+
+        // Handle special z-characters
         if (zchar == 0) {
           result += " ";
+          continue;
         }
+
         if ([1, 2, 3].includes(zchar)) {
           if (abbreviations) {
+            // Start of abbreviation sequence
             abbrev1 = zchar - 1;
+            continue;
+          } else {
+            // Inside an abbreviation, z-chars 1-3 should not appear
+            // Skip them to prevent nested abbreviations
             continue;
           }
         }
+
+        if (zchar == 4) {
+          // Shift to A1 (uppercase) for one character
+          oneShift = currentTable; // Save current alphabet
+          currentTable = 1;
+          continue;
+        }
+
+        if (zchar == 5) {
+          // Shift to A2 (punctuation) for one character
+          oneShift = currentTable; // Save current alphabet
+          currentTable = 2;
+          continue;
+        }
+
+        if (zchar == 6 && currentTable == 2) {
+          // Special case: z-char 6 in A2 means ZSCII escape
+          // Next two z-chars form a 10-bit ZSCII character code
+          if (this.trace) {
+            console.log(`    Z-char 6 in A2: ZSCII escape sequence starting`);
+          }
+          abbrev1 = -2; // Special marker for ZSCII escape
+          // Note: oneShift will be restored after the ZSCII char is output
+          continue;
+        }
+
         if (zchar >= 6 && zchar <= 31) {
+          // Regular character
           result += ZSCII_TABLES[currentTable][zchar - 6];
           if (oneShift !== false) {
             currentTable = oneShift;
             oneShift = false;
           }
-        } else if (zchar == 4) {
-          oneShift = 0;
-          currentTable = 1;
-        } else if (zchar == 5) {
-          oneShift = 0;
-          currentTable = 2;
+          continue;
         }
       }
     } while (!isLast);
