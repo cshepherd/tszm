@@ -2102,6 +2102,15 @@ class ZMachine {
           // Push a value onto the user stack
           this.stack.push(operands[0]);
           return;
+        case 9: // pull
+          // Pop a value from the user stack and store in variable
+          if (this.stack.length === 0) {
+            console.error("Stack underflow in pull");
+            return;
+          }
+          const pulledValue = this.stack.pop() || 0;
+          this.setVariableValue(operands[0], pulledValue);
+          return;
       }
     }
 

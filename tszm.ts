@@ -63,10 +63,16 @@ async function main() {
   // Parse command line arguments
   const args = process.argv.slice(2);
   const traceEnabled = args.includes("--trace");
+  const zImagePath = args.find(arg => !arg.startsWith("--"));
+
+  if (!zImagePath) {
+    console.error("Error: Z-image file path is required");
+    console.error("Usage: tszm <z-image-file> [--trace]");
+    process.exit(1);
+  }
 
   const consoleDevice = new ZMConsole();
-  const path = "images/LeatherGoddesses.z3";
-  const zm = new ZMachine(path, consoleDevice);
+  const zm = new ZMachine(zImagePath, consoleDevice);
 
   if (traceEnabled) {
     zm.setTrace(true);
