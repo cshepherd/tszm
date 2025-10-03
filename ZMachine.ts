@@ -749,6 +749,130 @@ class ZMachine {
         case 13: // store
           this.setVariableValue(operands[0], operands[1]);
           return;
+        case 14: // insert_obj
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // insert_obj object destination
+          // Make object a child of destination (removing it from its current parent)
+          const insertObjId = operands[0];
+          const destObjId = operands[1];
+
+          // Calculate object entry size based on version
+          const insertObjPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const insertObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+
+          // Get addresses for both objects
+          const insertObjAddress =
+            this.header.objectTableAddress +
+            insertObjPropertyDefaultSize +
+            (insertObjId - 1) * insertObjObjectEntrySize;
+          const destObjAddress =
+            this.header.objectTableAddress +
+            insertObjPropertyDefaultSize +
+            (destObjId - 1) * insertObjObjectEntrySize;
+
+          // First, remove object from its current parent
+          if (this.header.version <= 3) {
+            // Version 1-3: parent at offset 4, sibling at 5, child at 6 (all 1 byte)
+            const oldParent = this.memory.readUInt8(insertObjAddress + 4);
+
+            if (oldParent !== 0) {
+              // Remove from old parent's child list
+              const oldParentAddress =
+                this.header.objectTableAddress +
+                insertObjPropertyDefaultSize +
+                (oldParent - 1) * insertObjObjectEntrySize;
+              const oldParentChild = this.memory.readUInt8(
+                oldParentAddress + 6,
+              );
+
+              if (oldParentChild === insertObjId) {
+                // Object was first child, make parent point to object's sibling
+                const objSibling = this.memory.readUInt8(insertObjAddress + 5);
+                this.memory.writeUInt8(objSibling, oldParentAddress + 6);
+              } else {
+                // Find object in sibling chain and remove it
+                let currentObj = oldParentChild;
+                while (currentObj !== 0) {
+                  const currentObjAddress =
+                    this.header.objectTableAddress +
+                    insertObjPropertyDefaultSize +
+                    (currentObj - 1) * insertObjObjectEntrySize;
+                  const nextSibling = this.memory.readUInt8(
+                    currentObjAddress + 5,
+                  );
+                  if (nextSibling === insertObjId) {
+                    // Found it, link around it
+                    const objSibling = this.memory.readUInt8(
+                      insertObjAddress + 5,
+                    );
+                    this.memory.writeUInt8(objSibling, currentObjAddress + 5);
+                    break;
+                  }
+                  currentObj = nextSibling;
+                }
+              }
+            }
+
+            // Now insert object as first child of destination
+            const destChild = this.memory.readUInt8(destObjAddress + 6);
+            this.memory.writeUInt8(destChild, insertObjAddress + 5); // Object's sibling = dest's old first child
+            this.memory.writeUInt8(insertObjId, destObjAddress + 6); // Dest's child = object
+            this.memory.writeUInt8(destObjId, insertObjAddress + 4); // Object's parent = dest
+          } else {
+            // Version 4+: parent at offset 6, sibling at 8, child at 10 (all 2 bytes)
+            const oldParent = this.memory.readUInt16BE(insertObjAddress + 6);
+
+            if (oldParent !== 0) {
+              // Remove from old parent's child list
+              const oldParentAddress =
+                this.header.objectTableAddress +
+                insertObjPropertyDefaultSize +
+                (oldParent - 1) * insertObjObjectEntrySize;
+              const oldParentChild = this.memory.readUInt16BE(
+                oldParentAddress + 10,
+              );
+
+              if (oldParentChild === insertObjId) {
+                const objSibling = this.memory.readUInt16BE(
+                  insertObjAddress + 8,
+                );
+                this.memory.writeUInt16BE(objSibling, oldParentAddress + 10);
+              } else {
+                let currentObj = oldParentChild;
+                while (currentObj !== 0) {
+                  const currentObjAddress =
+                    this.header.objectTableAddress +
+                    insertObjPropertyDefaultSize +
+                    (currentObj - 1) * insertObjObjectEntrySize;
+                  const nextSibling = this.memory.readUInt16BE(
+                    currentObjAddress + 8,
+                  );
+                  if (nextSibling === insertObjId) {
+                    const objSibling = this.memory.readUInt16BE(
+                      insertObjAddress + 8,
+                    );
+                    this.memory.writeUInt16BE(
+                      objSibling,
+                      currentObjAddress + 8,
+                    );
+                    break;
+                  }
+                  currentObj = nextSibling;
+                }
+              }
+            }
+
+            // Insert as first child of destination
+            const destChild = this.memory.readUInt16BE(destObjAddress + 10);
+            this.memory.writeUInt16BE(destChild, insertObjAddress + 8);
+            this.memory.writeUInt16BE(insertObjId, destObjAddress + 10);
+            this.memory.writeUInt16BE(destObjId, insertObjAddress + 6);
+          }
+          return;
         case 15: // loadw
           if (!this.memory) {
             console.error("Memory not loaded");
@@ -1393,6 +1517,47 @@ class ZMachine {
             this.setVariableValue(storeVariable, getParentValue);
           }
           return;
+        case 4: // get_prop_len
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Get the length of a property
+          // Operand is the address of the property data (NOT the property header)
+          const propDataAddr = operands[0];
+
+          if (propDataAddr === 0) {
+            // Special case: address 0 means property doesn't exist, return 0
+            if (storeVariable !== undefined) {
+              this.setVariableValue(storeVariable, 0);
+            }
+            return;
+          }
+
+          // The size byte is immediately before the property data
+          const sizeByte = this.memory.readUInt8(propDataAddr - 1);
+
+          let propLen: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: size byte format is SSSPPPP, where SSS+1 = length
+            propLen = (sizeByte >> 5) + 1;
+          } else {
+            // Version 4+: more complex format
+            if (sizeByte & 0x80) {
+              // Two-byte size field, second byte contains length
+              const secondByte = this.memory.readUInt8(propDataAddr - 2);
+              propLen = secondByte & 0x3f;
+              if (propLen === 0) propLen = 64;
+            } else {
+              // Single byte, bit 6 determines size
+              propLen = sizeByte & 0x40 ? 2 : 1;
+            }
+          }
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, propLen);
+          }
+          return;
         case 5: // inc (increment variable)
           const varValue = this.getVariableValue(operands[0]);
           this.setVariableValue(operands[0], varValue + 1);
@@ -1750,6 +1915,95 @@ class ZMachine {
           const storebAddress = storebArrayAddress + storebByteIndex;
           this.memory.writeUInt8(storebValue, storebAddress);
           return;
+        case 3: // put_prop
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+          // Set a property value on an object
+          const putPropVarObjectId = operands[0];
+          const putPropVarNum = operands[1];
+          const putPropVarValue = operands[2];
+
+          // Calculate object address
+          const putPropVarPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const putPropVarObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const putPropVarObjectAddress =
+            this.header.objectTableAddress +
+            putPropVarPropertyDefaultSize +
+            (putPropVarObjectId - 1) * putPropVarObjectEntrySize;
+
+          // Get property table address (last 2 bytes of object entry)
+          const putPropVarPropertyTableAddr = this.memory.readUInt16BE(
+            putPropVarObjectAddress + putPropVarObjectEntrySize - 2,
+          );
+
+          // Skip past the short name (first byte is length in words)
+          const putPropVarNameLength = this.memory.readUInt8(
+            putPropVarPropertyTableAddr,
+          );
+          let putPropVarAddr =
+            putPropVarPropertyTableAddr + 1 + putPropVarNameLength * 2;
+
+          // Search through properties to find the one to modify
+          while (true) {
+            const putPropVarSizeByte = this.memory.readUInt8(putPropVarAddr);
+            if (putPropVarSizeByte === 0) {
+              console.error(
+                `Property ${putPropVarNum} not found on object ${putPropVarObjectId}`,
+              );
+              return;
+            }
+
+            let putPropVarCurrentNum: number;
+            let putPropVarDataSize: number;
+            let putPropVarDataAddr: number;
+
+            if (this.header.version <= 3) {
+              // Version 1-3: size byte format is SSSPPPP
+              putPropVarDataSize = (putPropVarSizeByte >> 5) + 1;
+              putPropVarCurrentNum = putPropVarSizeByte & 0x1f;
+              putPropVarDataAddr = putPropVarAddr + 1;
+            } else {
+              // Version 4+: more complex format
+              putPropVarCurrentNum = putPropVarSizeByte & 0x3f;
+              if (putPropVarSizeByte & 0x80) {
+                // Two-byte size field
+                const putPropVarSecondByte = this.memory.readUInt8(
+                  putPropVarAddr + 1,
+                );
+                putPropVarDataSize = putPropVarSecondByte & 0x3f;
+                if (putPropVarDataSize === 0) putPropVarDataSize = 64;
+                putPropVarDataAddr = putPropVarAddr + 2;
+              } else {
+                // Single byte, bit 6 determines size
+                putPropVarDataSize = putPropVarSizeByte & 0x40 ? 2 : 1;
+                putPropVarDataAddr = putPropVarAddr + 1;
+              }
+            }
+
+            if (putPropVarCurrentNum === putPropVarNum) {
+              // Found the property, write the value
+              if (putPropVarDataSize === 1) {
+                this.memory.writeUInt8(
+                  putPropVarValue & 0xff,
+                  putPropVarDataAddr,
+                );
+              } else if (putPropVarDataSize === 2) {
+                this.memory.writeUInt16BE(putPropVarValue, putPropVarDataAddr);
+              } else {
+                console.error(
+                  `Invalid property size ${putPropVarDataSize} for put_prop`,
+                );
+                return;
+              }
+              return;
+            }
+
+            // Move to next property
+            putPropVarAddr = putPropVarDataAddr + putPropVarDataSize;
+          }
         case 4: // sread (read text from keyboard)
           if (!this.memory || !this.inputOutputDevice || !this.header) {
             console.error("Memory, input/output device, or header not loaded");
@@ -2003,6 +2257,9 @@ class ZMachine {
           if (storeVariable !== undefined) {
             this.setVariableValue(storeVariable, andResult);
           }
+          return;
+        case 13: // store
+          this.setVariableValue(operands[0], operands[1]);
           return;
       }
     }
