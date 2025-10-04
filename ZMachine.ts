@@ -2342,6 +2342,100 @@ class ZMachine {
             }
           }
           return;
+        case 4: // dec_chk
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for dec_chk");
+            return;
+          }
+          // Decrement variable (operand 0) and branch if now less than value (operand 1)
+          const decVarValue = this.getVariableValue(operands[0]);
+          const newDecVarValue = (decVarValue - 1) & 0xffff; // Keep as 16-bit
+          this.setVariableValue(operands[0], newDecVarValue);
+
+          // Convert to signed for comparison
+          const signedDecVarNewValue =
+            newDecVarValue > 32767 ? newDecVarValue - 65536 : newDecVarValue;
+          const signedDecVarCompareValue =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const decVarCondition = signedDecVarNewValue < signedDecVarCompareValue;
+          const decVarShouldBranch = decVarCondition === branchOnTrue;
+
+          if (decVarShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
+        case 5: // inc_chk
+          if (branchOffset === undefined || branchOnTrue === undefined) {
+            console.error("Branch information missing for inc_chk");
+            return;
+          }
+          // Increment variable (operand 0) and branch if now greater than value (operand 1)
+          const incVarValue = this.getVariableValue(operands[0]);
+          const newIncVarValue = (incVarValue + 1) & 0xffff; // Keep as 16-bit
+          this.setVariableValue(operands[0], newIncVarValue);
+
+          // Convert to signed for comparison
+          const signedIncVarNewValue =
+            newIncVarValue > 32767 ? newIncVarValue - 65536 : newIncVarValue;
+          const signedIncVarCompareValue =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+          const incVarCondition = signedIncVarNewValue > signedIncVarCompareValue;
+          const incVarShouldBranch = incVarCondition === branchOnTrue;
+
+          if (incVarShouldBranch) {
+            if (branchOffset === 0 || branchOffset === 1) {
+              const returnValue = branchOffset;
+              const frameMarker = this.callStack.pop();
+
+              // Restore saved local variables
+              const savedLocalCount = this.callStack.pop();
+              this.localVariables = [];
+              for (let i = 0; i < (savedLocalCount || 0); i++) {
+                this.localVariables.unshift(this.callStack.pop() || 0);
+              }
+
+              let returnStoreVar: number | undefined;
+              if (frameMarker === 1) {
+                returnStoreVar = this.callStack.pop();
+              }
+              const returnPC = this.callStack.pop();
+              if (returnPC !== undefined) {
+                this.pc = returnPC;
+                if (returnStoreVar !== undefined) {
+                  this.setVariableValue(returnStoreVar, returnValue);
+                }
+              }
+            } else {
+              const newPC = this.pc + branchOffset - 2;
+              this.pc = newPC;
+            }
+          }
+          return;
         case 8: // or
           const orResult = operands[0] | operands[1];
           if (storeVariable !== undefined) {
@@ -2534,8 +2628,8 @@ class ZMachine {
       return [5, 6, 13, 15].includes(opcode); // save, restore, verify, piracy
     }
     if (category === "VAR_2OP") {
-      // 2OP in VAR form (0xC0-0xDF) - je, jl, jg are branch instructions
-      return [1, 2, 3].includes(opcode); // je, jl, jg
+      // 2OP in VAR form (0xC0-0xDF) - je, jl, jg, dec_chk, inc_chk are branch instructions
+      return [1, 2, 3, 4, 5].includes(opcode); // je, jl, jg, dec_chk, inc_chk
     }
     if (category === "VAR") {
       // True VAR form (0xE0-0xFF) - check standard VAR branch instructions
