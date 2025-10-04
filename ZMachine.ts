@@ -1685,6 +1685,125 @@ class ZMachine {
           this.print();
           this.pc = printAddrOrigPC;
           return;
+        case 9: // remove_obj
+          // Remove an object from the object tree
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+
+          const removeObjId = operands[0];
+          if (removeObjId === 0) {
+            // Object 0 is invalid, just return
+            return;
+          }
+
+          // Calculate object address
+          const removeObjPropertyDefaultSize =
+            this.header.version <= 3 ? 31 * 2 : 63 * 2;
+          const removeObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
+          const removeObjAddress =
+            this.header.objectTableAddress +
+            removeObjPropertyDefaultSize +
+            (removeObjId - 1) * removeObjObjectEntrySize;
+
+          // Read the object's parent
+          let parentId: number;
+          if (this.header.version <= 3) {
+            // Version 1-3: parent is at offset 4 (1 byte)
+            parentId = this.memory.readUInt8(removeObjAddress + 4);
+          } else {
+            // Version 4+: parent is at offset 6 (2 bytes)
+            parentId = this.memory.readUInt16BE(removeObjAddress + 6);
+          }
+
+          // If object has no parent, nothing to do
+          if (parentId === 0) {
+            return;
+          }
+
+          // Calculate parent's address
+          const parentAddress =
+            this.header.objectTableAddress +
+            removeObjPropertyDefaultSize +
+            (parentId - 1) * removeObjObjectEntrySize;
+
+          // Read parent's child
+          let parentChildId: number;
+          if (this.header.version <= 3) {
+            parentChildId = this.memory.readUInt8(parentAddress + 6);
+          } else {
+            parentChildId = this.memory.readUInt16BE(parentAddress + 10);
+          }
+
+          // If the object being removed is the parent's first child
+          if (parentChildId === removeObjId) {
+            // Set parent's child to this object's sibling
+            let removeObjSiblingId: number;
+            if (this.header.version <= 3) {
+              removeObjSiblingId = this.memory.readUInt8(removeObjAddress + 5);
+              this.memory.writeUInt8(removeObjSiblingId, parentAddress + 6);
+            } else {
+              removeObjSiblingId = this.memory.readUInt16BE(removeObjAddress + 9);
+              this.memory.writeUInt16BE(removeObjSiblingId, parentAddress + 10);
+            }
+          } else {
+            // Find the object in the parent's child list
+            let currentChildId = parentChildId;
+            while (currentChildId !== 0) {
+              const currentChildAddress =
+                this.header.objectTableAddress +
+                removeObjPropertyDefaultSize +
+                (currentChildId - 1) * removeObjObjectEntrySize;
+
+              let currentChildSiblingId: number;
+              if (this.header.version <= 3) {
+                currentChildSiblingId = this.memory.readUInt8(
+                  currentChildAddress + 5,
+                );
+              } else {
+                currentChildSiblingId = this.memory.readUInt16BE(
+                  currentChildAddress + 9,
+                );
+              }
+
+              // If the next sibling is the object we're removing
+              if (currentChildSiblingId === removeObjId) {
+                // Skip over it by setting current child's sibling to removed object's sibling
+                let removeObjSiblingId: number;
+                if (this.header.version <= 3) {
+                  removeObjSiblingId = this.memory.readUInt8(
+                    removeObjAddress + 5,
+                  );
+                  this.memory.writeUInt8(
+                    removeObjSiblingId,
+                    currentChildAddress + 5,
+                  );
+                } else {
+                  removeObjSiblingId = this.memory.readUInt16BE(
+                    removeObjAddress + 9,
+                  );
+                  this.memory.writeUInt16BE(
+                    removeObjSiblingId,
+                    currentChildAddress + 9,
+                  );
+                }
+                break;
+              }
+
+              currentChildId = currentChildSiblingId;
+            }
+          }
+
+          // Clear the removed object's parent and sibling
+          if (this.header.version <= 3) {
+            this.memory.writeUInt8(0, removeObjAddress + 4); // parent
+            this.memory.writeUInt8(0, removeObjAddress + 5); // sibling
+          } else {
+            this.memory.writeUInt16BE(0, removeObjAddress + 6); // parent
+            this.memory.writeUInt16BE(0, removeObjAddress + 9); // sibling
+          }
+          return;
         case 13: // print_paddr
           const stringAddr = operands[0] * 2;
           const origPC = this.pc;
@@ -2230,6 +2349,58 @@ class ZMachine {
           }
           // Store the popped value to the specified variable
           this.setVariableValue(operands[0], pulledValue);
+          return;
+        case 30: // print_table (v5+)
+          // Print a table of text
+          // operands[0]: text buffer address
+          // operands[1]: width (characters per row)
+          // operands[2]: height (rows, optional, default 1)
+          // operands[3]: skip (bytes to skip between rows, optional, default 0)
+          if (!this.memory) {
+            console.error("Memory not loaded");
+            return;
+          }
+
+          const tableAddr = operands[0];
+          const tableWidth = operands[1];
+          const tableHeight = operands.length > 2 ? operands[2] : 1;
+          const tableSkip = operands.length > 3 ? operands[3] : 0;
+
+          // Bounds check
+          if (tableAddr >= this.memory.length) {
+            console.error(`print_table: Invalid address 0x${tableAddr.toString(16)} (memory size: 0x${this.memory.length.toString(16)})`);
+            return;
+          }
+
+          for (let row = 0; row < tableHeight; row++) {
+            // Calculate the starting address for this row
+            const rowAddr = tableAddr + row * (tableWidth + tableSkip);
+
+            // Bounds check for this row
+            if (rowAddr + tableWidth > this.memory.length) {
+              console.error(`print_table: Row ${row} extends beyond memory (addr: 0x${rowAddr.toString(16)})`);
+              break;
+            }
+
+            // Print each character in the row
+            for (let col = 0; col < tableWidth; col++) {
+              const charCode = this.memory.readUInt8(rowAddr + col);
+              if (this.inputOutputDevice) {
+                this.inputOutputDevice.writeString(String.fromCharCode(charCode));
+              } else {
+                process.stdout.write(String.fromCharCode(charCode));
+              }
+            }
+
+            // Print newline after each row except the last
+            if (row < tableHeight - 1) {
+              if (this.inputOutputDevice) {
+                this.inputOutputDevice.writeString("\n");
+              } else {
+                process.stdout.write("\n");
+              }
+            }
+          }
           return;
       }
     }
