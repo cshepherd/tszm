@@ -189,6 +189,27 @@ class ZMachine {
     }
   }
 
+  private getPropertyDefaultSize(): number {
+    if (!this.header) throw new Error("Header not loaded");
+    return this.header.version <= 3 ? 31 * 2 : 63 * 2;
+  }
+
+  private getObjectEntrySize(): number {
+    if (!this.header) throw new Error("Header not loaded");
+    return this.header.version <= 3 ? 9 : 14;
+  }
+
+  private getObjectAddress(objectId: number): number {
+    if (!this.header) throw new Error("Header not loaded");
+    const propertyDefaultSize = this.getPropertyDefaultSize();
+    const objectEntrySize = this.getObjectEntrySize();
+    return (
+      this.header.objectTableAddress +
+      propertyDefaultSize +
+      (objectId - 1) * objectEntrySize
+    );
+  }
+
   print(abbreviations: boolean = true) {
     let fullString = this.decodeZSCII(abbreviations);
     if (this.inputOutputDevice) {
@@ -364,12 +385,7 @@ class ZMachine {
           const attributeNum = operands[1];
 
           // Calculate object address
-          let propertyDefaultSize = this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          let objectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const objectAddress =
-            this.header.objectTableAddress +
-            propertyDefaultSize +
-            (objectId - 1) * objectEntrySize;
+          const objectAddress = this.getObjectAddress(objectId);
 
           // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
           const attrByteCount = this.header.version <= 3 ? 4 : 6;
@@ -471,13 +487,7 @@ class ZMachine {
           const jinObj2 = operands[1];
 
           // Calculate obj1 address
-          const jinPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const jinObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const jinObj1Address =
-            this.header.objectTableAddress +
-            jinPropertyDefaultSize +
-            (jinObj1 - 1) * jinObjectEntrySize;
+          const jinObj1Address = this.getObjectAddress(jinObj1);
 
           // Read parent of obj1
           let jinParent: number;
@@ -511,13 +521,7 @@ class ZMachine {
           const setAttrNum = operands[1];
 
           // Calculate object address
-          const setAttrPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const setAttrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const setAttrObjectAddress =
-            this.header.objectTableAddress +
-            setAttrPropertyDefaultSize +
-            (setAttrObjectId - 1) * setAttrObjectEntrySize;
+          const setAttrObjectAddress = this.getObjectAddress(setAttrObjectId);
 
           // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
           const setAttrByteCount = this.header.version <= 3 ? 4 : 6;
@@ -549,13 +553,7 @@ class ZMachine {
           const clearAttrNum = operands[1];
 
           // Calculate object address
-          const clearAttrPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const clearAttrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const clearAttrObjectAddress =
-            this.header.objectTableAddress +
-            clearAttrPropertyDefaultSize +
-            (clearAttrObjectId - 1) * clearAttrObjectEntrySize;
+          const clearAttrObjectAddress = this.getObjectAddress(clearAttrObjectId);
 
           // Attributes are stored in the first 4 bytes (v1-3) or 6 bytes (v4+)
           const clearAttrByteCount = this.header.version <= 3 ? 4 : 6;
@@ -590,20 +588,9 @@ class ZMachine {
           const insertObjId = operands[0];
           const destObjId = operands[1];
 
-          // Calculate object entry size based on version
-          const insertObjPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const insertObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-
           // Get addresses for both objects
-          const insertObjAddress =
-            this.header.objectTableAddress +
-            insertObjPropertyDefaultSize +
-            (insertObjId - 1) * insertObjObjectEntrySize;
-          const destObjAddress =
-            this.header.objectTableAddress +
-            insertObjPropertyDefaultSize +
-            (destObjId - 1) * insertObjObjectEntrySize;
+          const insertObjAddress = this.getObjectAddress(insertObjId);
+          const destObjAddress = this.getObjectAddress(destObjId);
 
           // First, remove object from its current parent
           if (this.header.version <= 3) {
@@ -612,10 +599,7 @@ class ZMachine {
 
             if (oldParent !== 0) {
               // Remove from old parent's child list
-              const oldParentAddress =
-                this.header.objectTableAddress +
-                insertObjPropertyDefaultSize +
-                (oldParent - 1) * insertObjObjectEntrySize;
+              const oldParentAddress = this.getObjectAddress(oldParent);
               const oldParentChild = this.memory.readUInt8(
                 oldParentAddress + 6,
               );
@@ -628,10 +612,7 @@ class ZMachine {
                 // Find object in sibling chain and remove it
                 let currentObj = oldParentChild;
                 while (currentObj !== 0) {
-                  const currentObjAddress =
-                    this.header.objectTableAddress +
-                    insertObjPropertyDefaultSize +
-                    (currentObj - 1) * insertObjObjectEntrySize;
+                  const currentObjAddress = this.getObjectAddress(currentObj);
                   const nextSibling = this.memory.readUInt8(
                     currentObjAddress + 5,
                   );
@@ -659,10 +640,7 @@ class ZMachine {
 
             if (oldParent !== 0) {
               // Remove from old parent's child list
-              const oldParentAddress =
-                this.header.objectTableAddress +
-                insertObjPropertyDefaultSize +
-                (oldParent - 1) * insertObjObjectEntrySize;
+              const oldParentAddress = this.getObjectAddress(oldParent);
               const oldParentChild = this.memory.readUInt16BE(
                 oldParentAddress + 10,
               );
@@ -675,10 +653,7 @@ class ZMachine {
               } else {
                 let currentObj = oldParentChild;
                 while (currentObj !== 0) {
-                  const currentObjAddress =
-                    this.header.objectTableAddress +
-                    insertObjPropertyDefaultSize +
-                    (currentObj - 1) * insertObjObjectEntrySize;
+                  const currentObjAddress = this.getObjectAddress(currentObj);
                   const nextSibling = this.memory.readUInt16BE(
                     currentObjAddress + 8,
                   );
@@ -774,15 +749,10 @@ class ZMachine {
           const getPropNum = operands[1];
 
           // Calculate object address
-          const getPropPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const getPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const getPropObjectAddress =
-            this.header.objectTableAddress +
-            getPropPropertyDefaultSize +
-            (getPropObjectId - 1) * getPropObjectEntrySize;
+          const getPropObjectAddress = this.getObjectAddress(getPropObjectId);
 
           // Get property table address (last 2 bytes of object entry)
+          const getPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
           const getPropPropertyTableAddr = this.memory.readUInt16BE(
             getPropObjectAddress + getPropObjectEntrySize - 2,
           );
@@ -872,15 +842,10 @@ class ZMachine {
           const getPropAddrNum = operands[1];
 
           // Calculate object address
-          const getPropAddrPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const getPropAddrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const getPropAddrObjectAddress =
-            this.header.objectTableAddress +
-            getPropAddrPropertyDefaultSize +
-            (getPropAddrObjectId - 1) * getPropAddrObjectEntrySize;
+          const getPropAddrObjectAddress = this.getObjectAddress(getPropAddrObjectId);
 
           // Get property table address (last 2 bytes of object entry)
+          const getPropAddrObjectEntrySize = this.header.version <= 3 ? 9 : 14;
           const getPropAddrPropertyTableAddr = this.memory.readUInt16BE(
             getPropAddrObjectAddress + getPropAddrObjectEntrySize - 2,
           );
@@ -952,15 +917,10 @@ class ZMachine {
           const putPropValue = operands[2];
 
           // Calculate object address
-          const putPropPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const putPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const putPropObjectAddress =
-            this.header.objectTableAddress +
-            putPropPropertyDefaultSize +
-            (putPropObjectId - 1) * putPropObjectEntrySize;
+          const putPropObjectAddress = this.getObjectAddress(putPropObjectId);
 
           // Get property table address (last 2 bytes of object entry)
+          const putPropObjectEntrySize = this.header.version <= 3 ? 9 : 14;
           const putPropPropertyTableAddr = this.memory.readUInt16BE(
             putPropObjectAddress + putPropObjectEntrySize - 2,
           );
@@ -1172,13 +1132,7 @@ class ZMachine {
           const getSiblingObjectId = operands[0];
 
           // Calculate object address
-          const getSiblingPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const getSiblingObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const getSiblingObjectAddress =
-            this.header.objectTableAddress +
-            getSiblingPropertyDefaultSize +
-            (getSiblingObjectId - 1) * getSiblingObjectEntrySize;
+          const getSiblingObjectAddress = this.getObjectAddress(getSiblingObjectId);
 
           // Read sibling field
           let getSiblingValue: number;
@@ -1225,13 +1179,7 @@ class ZMachine {
           const getChildObjectId = operands[0];
 
           // Calculate object address
-          const getChildPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const getChildObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const getChildObjectAddress =
-            this.header.objectTableAddress +
-            getChildPropertyDefaultSize +
-            (getChildObjectId - 1) * getChildObjectEntrySize;
+          const getChildObjectAddress = this.getObjectAddress(getChildObjectId);
 
           // Read child field
           let getChildValue: number;
@@ -1270,13 +1218,7 @@ class ZMachine {
           const getParentObjectId = operands[0];
 
           // Calculate object address
-          const getParentPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const getParentObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const getParentObjectAddress =
-            this.header.objectTableAddress +
-            getParentPropertyDefaultSize +
-            (getParentObjectId - 1) * getParentObjectEntrySize;
+          const getParentObjectAddress = this.getObjectAddress(getParentObjectId);
 
           // Read parent field
           let getParentValue: number;
@@ -1352,15 +1294,10 @@ class ZMachine {
           const printObjId = operands[0];
 
           // Calculate object address
-          const printObjPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const printObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const printObjObjectAddress =
-            this.header.objectTableAddress +
-            printObjPropertyDefaultSize +
-            (printObjId - 1) * printObjObjectEntrySize;
+          const printObjObjectAddress = this.getObjectAddress(printObjId);
 
           // Get property table address (last 2 bytes of object entry)
+          const printObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
           const printObjPropertyTableAddr = this.memory.readUInt16BE(
             printObjObjectAddress + printObjObjectEntrySize - 2,
           );
@@ -1526,13 +1463,7 @@ class ZMachine {
           }
 
           // Calculate object address
-          const removeObjPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const removeObjObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const removeObjAddress =
-            this.header.objectTableAddress +
-            removeObjPropertyDefaultSize +
-            (removeObjId - 1) * removeObjObjectEntrySize;
+          const removeObjAddress = this.getObjectAddress(removeObjId);
 
           // Read the object's parent
           let parentId: number;
@@ -1550,10 +1481,7 @@ class ZMachine {
           }
 
           // Calculate parent's address
-          const parentAddress =
-            this.header.objectTableAddress +
-            removeObjPropertyDefaultSize +
-            (parentId - 1) * removeObjObjectEntrySize;
+          const parentAddress = this.getObjectAddress(parentId);
 
           // Read parent's child
           let parentChildId: number;
@@ -1578,10 +1506,7 @@ class ZMachine {
             // Find the object in the parent's child list
             let currentChildId = parentChildId;
             while (currentChildId !== 0) {
-              const currentChildAddress =
-                this.header.objectTableAddress +
-                removeObjPropertyDefaultSize +
-                (currentChildId - 1) * removeObjObjectEntrySize;
+              const currentChildAddress = this.getObjectAddress(currentChildId);
 
               let currentChildSiblingId: number;
               if (this.header.version <= 3) {
@@ -1903,15 +1828,10 @@ class ZMachine {
           const putPropVarValue = operands[2];
 
           // Calculate object address
-          const putPropVarPropertyDefaultSize =
-            this.header.version <= 3 ? 31 * 2 : 63 * 2;
-          const putPropVarObjectEntrySize = this.header.version <= 3 ? 9 : 14;
-          const putPropVarObjectAddress =
-            this.header.objectTableAddress +
-            putPropVarPropertyDefaultSize +
-            (putPropVarObjectId - 1) * putPropVarObjectEntrySize;
+          const putPropVarObjectAddress = this.getObjectAddress(putPropVarObjectId);
 
           // Get property table address (last 2 bytes of object entry)
+          const putPropVarObjectEntrySize = this.header.version <= 3 ? 9 : 14;
           const putPropVarPropertyTableAddr = this.memory.readUInt16BE(
             putPropVarObjectAddress + putPropVarObjectEntrySize - 2,
           );
