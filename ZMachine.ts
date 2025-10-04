@@ -1375,14 +1375,15 @@ class ZMachine {
           // Read sibling field
           let getSiblingValue: number;
           if (this.header.version <= 3) {
-            // Version 1-3: sibling is at offset 6 (1 byte)
+            // Version 1-3: sibling is at offset 5 (1 byte)
+            // Object layout: attrs(4) parent(1) sibling(1) child(1) properties(2)
             getSiblingValue = this.memory.readUInt8(
-              getSiblingObjectAddress + 6,
+              getSiblingObjectAddress + 5,
             );
           } else {
-            // Version 4+: sibling is at offset 10 (2 bytes)
+            // Version 4+: sibling is at offset 9 (2 bytes)
             getSiblingValue = this.memory.readUInt16BE(
-              getSiblingObjectAddress + 10,
+              getSiblingObjectAddress + 9,
             );
           }
 
