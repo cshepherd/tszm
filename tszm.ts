@@ -15,8 +15,10 @@ class ZMConsole implements ZMInputOutputDevice {
     return new Promise((resolve) => {
       let input = "";
 
-      // Enable raw mode to receive characters one at a time
-      process.stdin.setRawMode(true);
+      // Enable raw mode to receive characters one at a time (if TTY)
+      if (process.stdin.isTTY && process.stdin.setRawMode) {
+        process.stdin.setRawMode(true);
+      }
 
       const onData = (chunk: Buffer) => {
         const str = chunk.toString();
@@ -25,10 +27,20 @@ class ZMConsole implements ZMInputOutputDevice {
           const char = str[i];
           const code = str.charCodeAt(i);
 
-          if (code === 13 || code === 10) {
+          if (code === 3) {
+            // Ctrl-C - terminate program
+            process.stdin.removeListener("data", onData);
+            if (process.stdin.isTTY && process.stdin.setRawMode) {
+              process.stdin.setRawMode(false);
+            }
+            console.log("\n\nInterrupted by user.");
+            process.exit(0);
+          } else if (code === 13 || code === 10) {
             // Enter key - finish input
             process.stdin.removeListener("data", onData);
-            process.stdin.setRawMode(false);
+            if (process.stdin.isTTY && process.stdin.setRawMode) {
+              process.stdin.setRawMode(false);
+            }
             process.stdout.write("\n");
             resolve(input);
             return;
@@ -70,6 +82,12 @@ async function main() {
     console.error("Usage: tszm <z-image-file> [--trace]");
     process.exit(1);
   }
+
+  // Handle Ctrl-C gracefully
+  process.on("SIGINT", () => {
+    console.log("\n\nInterrupted by user.");
+    process.exit(0);
+  });
 
   const consoleDevice = new ZMConsole();
   const zm = new ZMachine(zImagePath, consoleDevice);

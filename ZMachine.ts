@@ -1849,6 +1849,17 @@ class ZMachine {
             routineAddress *= 8;
           }
 
+          // Calling address 0 means "return FALSE immediately"
+          if (routineAddress === 0) {
+            if (this.trace) {
+              console.log(`@call routine address 0: returning FALSE`);
+            }
+            if (storeVariable !== undefined) {
+              this.setVariableValue(storeVariable, 0);
+            }
+            return;
+          }
+
           let calledRoutine = routineAddress.toString(16);
           let args = operands.slice(1).map((a) => a.toString(16));
           if (this.trace) {
@@ -2164,11 +2175,19 @@ class ZMachine {
           return;
         case 9: // pull
           // Pop a value from the user stack and store in variable
+          if (this.trace) {
+            console.log(
+              `@pull: stack length=${this.stack.length}, operands[0]=${operands[0]}`
+            );
+          }
           if (this.stack.length === 0) {
             console.error("Stack underflow in pull");
             return;
           }
           const pulledValue = this.stack.pop() || 0;
+          if (this.trace) {
+            console.log(`@pull: pulled value=${pulledValue}, storing to var ${operands[0]}`);
+          }
           this.setVariableValue(operands[0], pulledValue);
           return;
       }
