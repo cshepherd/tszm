@@ -12,6 +12,7 @@ export class ZConsole implements ZMInputOutputDevice {
     constructor() {
         this.rl = createInterface({
             input: process.stdin,
+            output: process.stdout,
             historySize: 100,
             prompt: '',
         });
@@ -42,6 +43,7 @@ export class ZConsole implements ZMInputOutputDevice {
     async readLine(): Promise<string> {
         return new Promise<string>(
             resolve => {
+                this.rl.prompt();
                 this.rl.once('line', line => resolve(line))
             }
         );
@@ -52,6 +54,9 @@ export class ZConsole implements ZMInputOutputDevice {
     }
 
     async writeString(str: string): Promise<void> {
+        if (!str.endsWith('\n')) {
+            this.rl.setPrompt(str);
+        }
         process.stdout.write(str);
     }
 
