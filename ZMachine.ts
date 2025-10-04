@@ -2227,36 +2227,56 @@ class ZMachine {
             );
           }
 
-          // In v3, the text buffer format is:
-          // byte 0: max length (read-only, set by game)
-          // byte 1: number of characters read (set by interpreter)
-          // byte 2+: the actual text characters
+          // Text buffer format differs by version:
+          // v1-4: byte 0: max length, byte 1+: text (null-terminated)
+          // v5+:  byte 0: max length, byte 1: length stored, byte 2+: text
           const maxLen = this.memory.readUInt8(textBufferAddr);
 
           if (this.trace) {
-            console.log(`@sread: maxLen=${maxLen}`);
+            console.log(`@sread: maxLen=${maxLen}, version=${this.header.version}`);
           }
 
           // Truncate input to max length and convert to lowercase
           const text = input.toLowerCase().slice(0, maxLen);
 
-          if (this.trace) {
-            console.log(`@sread: writing length=${text.length} at offset 1`);
-          }
+          if (this.header.version <= 4) {
+            // v1-4: Write text starting at byte 1, null-terminate
+            if (this.trace) {
+              console.log(`@sread: v${this.header.version} format - writing text at offset 1`);
+            }
 
-          // Write length
-          this.memory.writeUInt8(text.length, textBufferAddr + 1);
+            for (let i = 0; i < text.length; i++) {
+              this.memory.writeUInt8(text.charCodeAt(i), textBufferAddr + 1 + i);
+            }
 
-          // Write characters
-          for (let i = 0; i < text.length; i++) {
-            this.memory.writeUInt8(text.charCodeAt(i), textBufferAddr + 2 + i);
+            // Null-terminate
+            if (text.length < maxLen) {
+              this.memory.writeUInt8(0, textBufferAddr + 1 + text.length);
+            }
+          } else {
+            // v5+: Write length at byte 1, text at byte 2+
+            if (this.trace) {
+              console.log(`@sread: v${this.header.version} format - writing length at offset 1, text at offset 2`);
+            }
+
+            this.memory.writeUInt8(text.length, textBufferAddr + 1);
+
+            for (let i = 0; i < text.length; i++) {
+              this.memory.writeUInt8(text.charCodeAt(i), textBufferAddr + 2 + i);
+            }
+
+            // Null-terminate if there's room
+            if (text.length < maxLen) {
+              this.memory.writeUInt8(0, textBufferAddr + 2 + text.length);
+            }
           }
 
           if (this.trace) {
             console.log(`@sread: wrote ${text.length} chars: "${text}"`);
             // Show what's in the buffer
             const bufferContents = [];
-            for (let i = 0; i < text.length + 3; i++) {
+            const bufferLen = this.header.version <= 4 ? text.length + 2 : text.length + 3;
+            for (let i = 0; i < bufferLen; i++) {
               bufferContents.push(
                 this.memory
                   .readUInt8(textBufferAddr + i)
@@ -2265,11 +2285,6 @@ class ZMachine {
               );
             }
             console.log(`@sread: buffer contents: ${bufferContents.join(" ")}`);
-          }
-
-          // Null-terminate if there's room
-          if (text.length < maxLen) {
-            this.memory.writeUInt8(0, textBufferAddr + 2 + text.length);
           }
 
           // Tokenize the input and write to parse buffer
@@ -2894,10 +2909,26 @@ class ZMachine {
     if (!this.memory || !this.header) return;
 
     // Read the text from the text buffer
-    const textLength = this.memory.readUInt8(textBufferAddr + 1);
+    // Format differs by version:
+    // v1-4: byte 0: max length, byte 1+: text (null-terminated)
+    // v5+:  byte 0: max length, byte 1: length, byte 2+: text
     const text = [];
-    for (let i = 0; i < textLength; i++) {
-      text.push(this.memory.readUInt8(textBufferAddr + 2 + i));
+    if (this.header.version <= 4) {
+      // v1-4: Read from byte 1 until null terminator
+      let i = 0;
+      const maxLen = this.memory.readUInt8(textBufferAddr);
+      while (i < maxLen) {
+        const char = this.memory.readUInt8(textBufferAddr + 1 + i);
+        if (char === 0) break;
+        text.push(char);
+        i++;
+      }
+    } else {
+      // v5+: Read length from byte 1, text from byte 2+
+      const textLength = this.memory.readUInt8(textBufferAddr + 1);
+      for (let i = 0; i < textLength; i++) {
+        text.push(this.memory.readUInt8(textBufferAddr + 2 + i));
+      }
     }
 
     // Get max number of tokens from parse buffer
