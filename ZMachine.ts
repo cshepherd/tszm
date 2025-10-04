@@ -40,6 +40,20 @@ class ZMachine {
     this.memory = await readFile(this.filePath);
     this.parseHeader(this.memory);
 
+    // Set screen dimensions in header (required by many games)
+    if (this.memory && this.header) {
+      if (this.header.version >= 4) {
+        // v4+: Set screen height at 0x20 and width at 0x21
+        this.memory.writeUInt8(24, 0x20); // height in lines (24 is a common terminal height)
+        this.memory.writeUInt8(80, 0x21); // width in characters (80 is standard terminal width)
+      }
+      if (this.header.version >= 5) {
+        // v5+: Set screen width and height in units at 0x22-0x25
+        this.memory.writeUInt16BE(80, 0x22); // width in units
+        this.memory.writeUInt16BE(24, 0x24); // height in units
+      }
+    }
+
     // init pc to first instruction in high memory + offset from header
     this.pc = this.header?.initialProgramCounter || 0;
   }
@@ -1684,6 +1698,91 @@ class ZMachine {
           this.pc = operands[0];
           this.print();
           this.pc = printAddrOrigPC;
+          return;
+        case 8: // call_1s (call with 1 operand, store result)
+          // This is a call instruction in 1OP form
+          if (!this.memory || !this.header) {
+            console.error("Memory or header not loaded");
+            return;
+          }
+
+          // Unpack routine address based on version
+          let call1sRoutineAddress = operands[0];
+          if (this.header.version <= 3) {
+            call1sRoutineAddress *= 2;
+          } else if (this.header.version <= 5) {
+            call1sRoutineAddress *= 4;
+          } else {
+            call1sRoutineAddress *= 8;
+          }
+
+          // Calling address 0 means "return FALSE immediately"
+          if (call1sRoutineAddress === 0) {
+            if (this.trace) {
+              console.log(`@call_1s routine address 0: returning FALSE`);
+            }
+            if (storeVariable !== undefined) {
+              this.setVariableValue(storeVariable, 0);
+            }
+            return;
+          }
+
+          if (this.trace) {
+            console.log(
+              `@call_1s Calling routine at ${call1sRoutineAddress.toString(16)}`,
+            );
+          }
+
+          // Save return info on call stack
+          this.callStack.push(this.pc);
+          if (storeVariable !== undefined) {
+            this.callStack.push(storeVariable);
+          }
+
+          // Save current local variables
+          const call1sSavedLocalCount = this.localVariables.length;
+          for (let i = 0; i < call1sSavedLocalCount; i++) {
+            this.callStack.push(this.localVariables[i]);
+          }
+          this.callStack.push(call1sSavedLocalCount);
+
+          const call1sFrameMarker = storeVariable !== undefined ? 1 : 0;
+          this.callStack.push(call1sFrameMarker);
+
+          if (this.trace) {
+            console.log(
+              `@call_1s Pushed: returnPC=${this.pc.toString(16)}, storeVar=${storeVariable}, savedLocals=${call1sSavedLocalCount}, marker=${call1sFrameMarker}`,
+            );
+          }
+
+          // Set up new routine context
+          this.currentContext = call1sRoutineAddress;
+          let call1sNewPC = this.currentContext;
+          const call1sLocalVarCount = this.memory.readUInt8(call1sNewPC);
+          call1sNewPC++;
+
+          // Initialize local variables array
+          this.localVariables = [];
+
+          // In versions 1-4, read initial values for local variables
+          // In versions 5+, locals are initialized to 0
+          if (this.header.version <= 4) {
+            // Version 1-4: initial values are in the story file
+            for (let i = 0; i < call1sLocalVarCount; i++) {
+              const call1sInitialValue = this.memory.readUInt16BE(call1sNewPC);
+              call1sNewPC += 2;
+              // call_1s has no arguments to pass, so always use initial value
+              this.localVariables[i] = call1sInitialValue;
+            }
+          } else {
+            // Version 5+: all locals initialized to 0
+            for (let i = 0; i < call1sLocalVarCount; i++) {
+              this.localVariables[i] = 0;
+            }
+          }
+
+          // Set PC to start of routine body
+          this.pc = call1sNewPC;
           return;
         case 9: // remove_obj
           // Remove an object from the object tree
