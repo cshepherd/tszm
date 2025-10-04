@@ -159,6 +159,36 @@ class ZMachine {
     this.pc += offset;
   }
 
+  private returnFromRoutine(returnValue: number): void {
+    const frameMarker = this.callStack.pop();
+
+    if (this.trace) {
+      console.log(
+        `@return value=${returnValue}, frameMarker=${frameMarker}, callStack size=${this.callStack.length}`,
+      );
+    }
+
+    // Restore saved local variables
+    const savedLocalCount = this.callStack.pop();
+    this.localVariables = [];
+    for (let i = 0; i < (savedLocalCount || 0); i++) {
+      this.localVariables.unshift(this.callStack.pop() || 0);
+    }
+
+    let returnStoreVar: number | undefined;
+    if (frameMarker === 1) {
+      returnStoreVar = this.callStack.pop();
+    }
+    const returnPC = this.callStack.pop();
+
+    if (returnPC !== undefined) {
+      this.pc = returnPC;
+      if (returnStoreVar !== undefined) {
+        this.setVariableValue(returnStoreVar, returnValue);
+      }
+    }
+  }
+
   print(abbreviations: boolean = true) {
     let fullString = this.decodeZSCII(abbreviations);
     if (this.inputOutputDevice) {
@@ -247,44 +277,7 @@ class ZMachine {
 
           if (jeShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@je branch return ${returnValue}, callStack size=${this.callStack.length}`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-              if (this.trace) {
-                console.log(`  Popped frameMarker=${frameMarker}`);
-              }
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              if (this.trace) {
-                console.log(`  Popped savedLocalCount=${savedLocalCount}`);
-              }
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-                if (this.trace) {
-                  console.log(`  Popped returnStoreVar=${returnStoreVar}`);
-                }
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(`  Popped returnPC=${returnPC?.toString(16)}`);
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -311,40 +304,7 @@ class ZMachine {
 
           if (decShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-10)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -371,40 +331,7 @@ class ZMachine {
 
           if (shouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-10)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -460,27 +387,7 @@ class ZMachine {
 
           if (attrShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -502,27 +409,7 @@ class ZMachine {
 
           if (jlShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -544,27 +431,7 @@ class ZMachine {
 
           if (jgShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -584,27 +451,7 @@ class ZMachine {
 
           if (testShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               this.pc = this.pc + branchOffset - 2;
             }
@@ -647,40 +494,7 @@ class ZMachine {
 
           if (jinShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-10)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               // Normal branch: offset is relative to current PC
               this.pc = this.pc + branchOffset - 2;
@@ -1338,27 +1152,7 @@ class ZMachine {
           if (shouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
               // Special values: return false or true
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               // Normal branch: offset is relative to current PC
               this.pc = this.pc + branchOffset - 2;
@@ -1412,40 +1206,7 @@ class ZMachine {
 
           if (getSiblingShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-10)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               this.pc = this.pc + branchOffset - 2;
             }
@@ -1494,40 +1255,7 @@ class ZMachine {
 
           if (getChildShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@branch return ${returnValue}, callStack: [${this.callStack
-                    .slice(-10)
-                    .map((v) => v.toString(16))
-                    .join(", ")}]`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@branch Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               this.pc = this.pc + branchOffset - 2;
             }
@@ -1925,63 +1653,10 @@ class ZMachine {
     if (category === "0OP") {
       switch (opcode) {
         case 0: // rtrue
-          const returnValue = 1;
-          const frameMarker = this.callStack.pop();
-          if (this.trace) {
-            console.log(
-              `@rtrue frameMarker=${frameMarker}, callStack before pops: [${this.callStack
-                .slice(-5)
-                .map((v) => v.toString(16))
-                .join(", ")}]`,
-            );
-          }
-
-          // Restore saved local variables
-          const savedLocalCount = this.callStack.pop();
-          this.localVariables = [];
-          for (let i = 0; i < (savedLocalCount || 0); i++) {
-            this.localVariables.unshift(this.callStack.pop() || 0);
-          }
-
-          let returnStoreVar: number | undefined;
-          if (frameMarker === 1) {
-            returnStoreVar = this.callStack.pop();
-          }
-          const returnPC = this.callStack.pop();
-          if (this.trace) {
-            console.log(
-              `@rtrue Popped: frameMarker=${frameMarker}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}, restoredLocals=${savedLocalCount}`,
-            );
-          }
-          if (returnPC !== undefined) {
-            this.pc = returnPC;
-            if (returnStoreVar !== undefined) {
-              this.setVariableValue(returnStoreVar, returnValue);
-            }
-          }
+          this.returnFromRoutine(1);
           return;
         case 1: // rfalse
-          const rfalseReturnValue = 0;
-          const rfalseFrameMarker = this.callStack.pop();
-
-          // Restore saved local variables
-          const rfalseLocalCount = this.callStack.pop();
-          this.localVariables = [];
-          for (let i = 0; i < (rfalseLocalCount || 0); i++) {
-            this.localVariables.unshift(this.callStack.pop() || 0);
-          }
-
-          let rfalseReturnStoreVar: number | undefined;
-          if (rfalseFrameMarker === 1) {
-            rfalseReturnStoreVar = this.callStack.pop();
-          }
-          const rfalseReturnPC = this.callStack.pop();
-          if (rfalseReturnPC !== undefined) {
-            this.pc = rfalseReturnPC;
-            if (rfalseReturnStoreVar !== undefined) {
-              this.setVariableValue(rfalseReturnStoreVar, rfalseReturnValue);
-            }
-          }
+          this.returnFromRoutine(0);
           return;
         case 2: // print
           this.print();
@@ -2540,37 +2215,7 @@ class ZMachine {
 
           if (jeVarShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              if (this.trace) {
-                console.log(
-                  `@je(VAR_2OP) branch return ${returnValue}, callStack len=${this.callStack.length}`,
-                );
-              }
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (this.trace) {
-                console.log(
-                  `@je(VAR_2OP) Popped: frameMarker=${frameMarker}, savedLocals=${savedLocalCount}, storeVar=${returnStoreVar}, returnPC=${returnPC?.toString(16)}`,
-                );
-              }
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -2592,27 +2237,7 @@ class ZMachine {
 
           if (jlVarShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -2634,27 +2259,7 @@ class ZMachine {
 
           if (jgVarShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               this.pc = this.pc + branchOffset - 2;
             }
@@ -2680,27 +2285,7 @@ class ZMachine {
 
           if (decVarShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
@@ -2727,27 +2312,7 @@ class ZMachine {
 
           if (incVarShouldBranch) {
             if (branchOffset === 0 || branchOffset === 1) {
-              const returnValue = branchOffset;
-              const frameMarker = this.callStack.pop();
-
-              // Restore saved local variables
-              const savedLocalCount = this.callStack.pop();
-              this.localVariables = [];
-              for (let i = 0; i < (savedLocalCount || 0); i++) {
-                this.localVariables.unshift(this.callStack.pop() || 0);
-              }
-
-              let returnStoreVar: number | undefined;
-              if (frameMarker === 1) {
-                returnStoreVar = this.callStack.pop();
-              }
-              const returnPC = this.callStack.pop();
-              if (returnPC !== undefined) {
-                this.pc = returnPC;
-                if (returnStoreVar !== undefined) {
-                  this.setVariableValue(returnStoreVar, returnValue);
-                }
-              }
+              this.returnFromRoutine(branchOffset);
             } else {
               const newPC = this.pc + branchOffset - 2;
               this.pc = newPC;
