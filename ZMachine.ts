@@ -2174,6 +2174,31 @@ class ZMachine {
             console.log(signedNum.toString());
           }
           return;
+        case 7: // random
+          // Generate a random number
+          // If range > 0: return random number from 1 to range (inclusive)
+          // If range < 0: seed RNG with |range| and return 0
+          // If range = 0: seed RNG with random value and return 0
+          let range = operands[0];
+          // Convert to signed 16-bit
+          if (range > 32767) {
+            range = range - 65536;
+          }
+
+          let randomValue: number;
+          if (range > 0) {
+            // Return random number from 1 to range (inclusive)
+            randomValue = Math.floor(Math.random() * range) + 1;
+          } else {
+            // Seeding the RNG - we don't actually implement seeding in JS
+            // Just return 0 as per spec
+            randomValue = 0;
+          }
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, randomValue);
+          }
+          return;
         case 8: // push
           // Push a value onto the user stack
           this.stack.push(operands[0]);
@@ -2649,8 +2674,8 @@ class ZMachine {
       return [8, 9].includes(opcode); // or, and
     }
     if (category === "VAR") {
-      // True VAR form (0xE0-0xFF) - call (opcode 0) is a store instruction
-      return [0].includes(opcode); // call
+      // True VAR form (0xE0-0xFF) - call and random are store instructions
+      return [0, 7].includes(opcode); // call, random
     }
     if (category === "2OP") {
       return [8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(
