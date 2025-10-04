@@ -2670,6 +2670,25 @@ class ZMachine {
         case 13: // store
           this.setVariableValue(operands[0], operands[1]);
           return;
+        case 20: // add
+          // Signed 16-bit addition
+          const addVarOperand1 =
+            operands[0] > 32767 ? operands[0] - 65536 : operands[0];
+          const addVarOperand2 =
+            operands[1] > 32767 ? operands[1] - 65536 : operands[1];
+
+          let addVarResult = addVarOperand1 + addVarOperand2;
+
+          // Convert back to unsigned 16-bit
+          if (addVarResult < 0) {
+            addVarResult = addVarResult + 65536;
+          }
+          addVarResult = addVarResult & 0xffff;
+
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, addVarResult);
+          }
+          return;
       }
     }
 
@@ -2864,8 +2883,8 @@ class ZMachine {
   ): boolean {
     // List of store instructions by category
     if (category === "VAR_2OP") {
-      // 2OP in VAR form (0xC0-0xDF) - or and and are store instructions
-      return [8, 9].includes(opcode); // or, and
+      // 2OP in VAR form (0xC0-0xDF) - or, and, add are store instructions
+      return [8, 9, 20].includes(opcode); // or, and, add
     }
     if (category === "VAR") {
       // True VAR form (0xE0-0xFF) - call and random are store instructions
