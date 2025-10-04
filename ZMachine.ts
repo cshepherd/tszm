@@ -1692,6 +1692,14 @@ class ZMachine {
           this.print();
           this.pc = origPC;
           return;
+        case 15: // not
+          // Bitwise NOT operation
+          const notValue = operands[0];
+          const notResult = (~notValue) & 0xffff; // Bitwise NOT, keep as 16-bit
+          if (storeVariable !== undefined) {
+            this.setVariableValue(storeVariable, notResult);
+          }
+          return;
       }
     }
 
