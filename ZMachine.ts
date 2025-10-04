@@ -1460,11 +1460,12 @@ class ZMachine {
           // Read child field
           let getChildValue: number;
           if (this.header.version <= 3) {
-            // Version 1-3: child is at offset 5 (1 byte)
-            getChildValue = this.memory.readUInt8(getChildObjectAddress + 5);
+            // Version 1-3: child is at offset 6 (1 byte)
+            // Object layout: attrs(4) parent(1) sibling(1) child(1) properties(2)
+            getChildValue = this.memory.readUInt8(getChildObjectAddress + 6);
           } else {
-            // Version 4+: child is at offset 8 (2 bytes)
-            getChildValue = this.memory.readUInt16BE(getChildObjectAddress + 8);
+            // Version 4+: child is at offset 10 (2 bytes)
+            getChildValue = this.memory.readUInt16BE(getChildObjectAddress + 10);
           }
 
           // Store the child value
@@ -2178,9 +2179,11 @@ class ZMachine {
           return;
         case 9: // pull
           // Pop a value from the user stack and store in variable
+          // In v1-4: operand specifies which variable to store to
+          // In v5+: uses store variable byte instead
           if (this.trace) {
             console.log(
-              `@pull: stack length=${this.stack.length}, operands[0]=${operands[0]}`
+              `@pull: stack length=${this.stack.length}, target var=${operands[0]}`
             );
           }
           if (this.stack.length === 0) {
@@ -2191,6 +2194,7 @@ class ZMachine {
           if (this.trace) {
             console.log(`@pull: pulled value=${pulledValue}, storing to var ${operands[0]}`);
           }
+          // Store the popped value to the specified variable
           this.setVariableValue(operands[0], pulledValue);
           return;
       }
