@@ -881,8 +881,23 @@ class ZMachine {
           // loadw array word-index -> (result)
           // Loads word at address (array + 2*word-index)
           const arrayAddress = operands[0];
-          const wordIndex = operands[1];
+          // Word index should be treated as signed 16-bit
+          let wordIndex = operands[1];
+          if (wordIndex > 32767) {
+            wordIndex = wordIndex - 65536;
+          }
           const wordAddress = arrayAddress + 2 * wordIndex;
+
+          // Check if address is in valid range
+          if (wordAddress < 0 || wordAddress >= this.memory.length - 1) {
+            console.error(
+              `LOADW: Invalid memory address 0x${wordAddress.toString(16)} ` +
+              `(array=0x${arrayAddress.toString(16)}, index=${wordIndex}). ` +
+              `Memory size: 0x${this.memory.length.toString(16)}`
+            );
+            return;
+          }
+
           const value = this.memory.readUInt16BE(wordAddress);
           if (storeVariable !== undefined) {
             this.setVariableValue(storeVariable, value);
@@ -896,8 +911,23 @@ class ZMachine {
           // loadb array byte-index -> (result)
           // Loads byte at address (array + byte-index)
           const byteArrayAddress = operands[0];
-          const byteIndex = operands[1];
+          // Byte index should be treated as signed 16-bit
+          let byteIndex = operands[1];
+          if (byteIndex > 32767) {
+            byteIndex = byteIndex - 65536;
+          }
           const byteAddress = byteArrayAddress + byteIndex;
+
+          // Check if address is in valid range
+          if (byteAddress < 0 || byteAddress >= this.memory.length) {
+            console.error(
+              `LOADB: Invalid memory address 0x${byteAddress.toString(16)} ` +
+              `(array=0x${byteArrayAddress.toString(16)}, index=${byteIndex}). ` +
+              `Memory size: 0x${this.memory.length.toString(16)}`
+            );
+            return;
+          }
+
           const byteValue = this.memory.readUInt8(byteAddress);
           if (storeVariable !== undefined) {
             this.setVariableValue(storeVariable, byteValue);
@@ -1897,9 +1927,24 @@ class ZMachine {
           // storew array word-index value
           // Stores word at address (array + 2*word-index)
           const storewArrayAddress = operands[0];
-          const storewWordIndex = operands[1];
+          // Word index should be treated as signed 16-bit
+          let storewWordIndex = operands[1];
+          if (storewWordIndex > 32767) {
+            storewWordIndex = storewWordIndex - 65536;
+          }
           const storewValue = operands[2];
           const storewAddress = storewArrayAddress + 2 * storewWordIndex;
+
+          // Check if address is in valid range
+          if (storewAddress < 0 || storewAddress >= this.memory.length - 1) {
+            console.error(
+              `STOREW: Invalid memory address 0x${storewAddress.toString(16)} ` +
+              `(array=0x${storewArrayAddress.toString(16)}, index=${storewWordIndex}). ` +
+              `Memory size: 0x${this.memory.length.toString(16)}`
+            );
+            return;
+          }
+
           this.memory.writeUInt16BE(storewValue, storewAddress);
           return;
         case 2: // storeb
@@ -1910,9 +1955,24 @@ class ZMachine {
           // storeb array byte-index value
           // Stores byte at address (array + byte-index)
           const storebArrayAddress = operands[0];
-          const storebByteIndex = operands[1];
+          // Byte index should be treated as signed 16-bit
+          let storebByteIndex = operands[1];
+          if (storebByteIndex > 32767) {
+            storebByteIndex = storebByteIndex - 65536;
+          }
           const storebValue = operands[2];
           const storebAddress = storebArrayAddress + storebByteIndex;
+
+          // Check if address is in valid range
+          if (storebAddress < 0 || storebAddress >= this.memory.length) {
+            console.error(
+              `STOREB: Invalid memory address 0x${storebAddress.toString(16)} ` +
+              `(array=0x${storebArrayAddress.toString(16)}, index=${storebByteIndex}). ` +
+              `Memory size: 0x${this.memory.length.toString(16)}`
+            );
+            return;
+          }
+
           this.memory.writeUInt8(storebValue, storebAddress);
           return;
         case 3: // put_prop
