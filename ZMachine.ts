@@ -83,7 +83,8 @@ class ZMachine {
 
     const memoryAddress =
       this.header.globalVariablesAddress + (variableNumber - 16) * 2;
-    return this.memory?.writeUInt16BE(value, memoryAddress);
+    // Z-Machine values are 16-bit, mask before writing
+    return this.memory?.writeUInt16BE(value & 0xffff, memoryAddress);
   }
 
   getLocalVariableValue(variableNumber: number): any {
@@ -93,7 +94,8 @@ class ZMachine {
 
   setLocalVariableValue(variableNumber: number, value: number): any {
     // Local variables are 1-indexed, array is 0-indexed
-    this.localVariables[variableNumber - 1] = value;
+    // Z-Machine values are 16-bit, so mask to prevent overflow
+    this.localVariables[variableNumber - 1] = value & 0xffff;
   }
 
   getVariableValue(variableNumber: number): any {
@@ -113,7 +115,8 @@ class ZMachine {
   setVariableValue(variableNumber: number, value: number): any {
     // Variable 0: SP
     if (variableNumber == 0) {
-      return this.stack.push(value);
+      // Z-Machine values are 16-bit, mask before pushing to stack
+      return this.stack.push(value & 0xffff);
     }
     if (variableNumber < 16) {
       return this.setLocalVariableValue(variableNumber, value);

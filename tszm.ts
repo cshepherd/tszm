@@ -16,12 +16,29 @@ class ZMConsole implements ZMInputOutputDevice {
       let input = "";
 
       // Enable raw mode to receive characters one at a time (if TTY)
-      if (process.stdin.isTTY && process.stdin.setRawMode) {
-        process.stdin.setRawMode(true);
+      const isRawMode = process.stdin.isTTY;
+      if (isRawMode) {
+        process.stdin.setRawMode!(true);
       }
 
       const onData = (chunk: Buffer) => {
         const str = chunk.toString();
+
+        // If not in raw mode, read until newline
+        if (!isRawMode) {
+          for (let i = 0; i < str.length; i++) {
+            const code = str.charCodeAt(i);
+            if (code === 13 || code === 10) {
+              // Found newline
+              process.stdin.removeListener("data", onData);
+              resolve(input);
+              return;
+            } else if (code >= 32 && code < 127) {
+              input += str[i];
+            }
+          }
+          return;
+        }
 
         for (let i = 0; i < str.length; i++) {
           const char = str[i];
@@ -30,16 +47,16 @@ class ZMConsole implements ZMInputOutputDevice {
           if (code === 3) {
             // Ctrl-C - terminate program
             process.stdin.removeListener("data", onData);
-            if (process.stdin.isTTY && process.stdin.setRawMode) {
-              process.stdin.setRawMode(false);
+            if (isRawMode) {
+              process.stdin.setRawMode!(false);
             }
             console.log("\n\nInterrupted by user.");
             process.exit(0);
           } else if (code === 13 || code === 10) {
             // Enter key - finish input
             process.stdin.removeListener("data", onData);
-            if (process.stdin.isTTY && process.stdin.setRawMode) {
-              process.stdin.setRawMode(false);
+            if (isRawMode) {
+              process.stdin.setRawMode!(false);
             }
             process.stdout.write("\n");
             resolve(input);
