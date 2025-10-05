@@ -1657,7 +1657,7 @@ class ZMachine {
           }
           return;
         case 12: // show_status
-          console.log("@show_status");
+//          console.log("@show_status");
           return;
       }
     }
