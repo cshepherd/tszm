@@ -3,6 +3,7 @@ interface ZMInputOutputDevice {
   readLine(): Promise<string>;
   writeChar(char: string): Promise<void>;
   writeString(str: string): Promise<void>;
+  close(): void;
 }
 
 export { ZMInputOutputDevice };
