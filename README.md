@@ -10,6 +10,7 @@
 
 ## Current Status
 04-Oct-2025: Many compatibility fixes have been made, most games are playable. I'm currently drawing the line at text "window", graphics, and sound functionality, meaning just about all the .z3s are fine.
+
 05-Oct-2025: "Naive" ZMCDN image generation works. We ship raw scene information off to gpt-image-1 and get an image to display in sixel format. For a demo, run this in [iTerm2](https://iterm2.com) or other sixel-compatible terminal:
 `curl https://cshepherd.fr/sample2.txt`
 
