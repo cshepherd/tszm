@@ -31,5 +31,6 @@ I think the above points will take us from "meh another Z-Machine" to a referenc
 The above points just sound cool as hell.
 
 ## Credits
-- All code by Christopher Shepherd <node@js.contractors>
+- @cshepherd
+- @chad3814 (readline sanity, code review)
 - Design credit: Jay Craft once asked what it'd look like if we hooked an image generation AI up to a ZMachine, so I generally blame him for this
