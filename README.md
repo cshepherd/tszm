@@ -25,7 +25,7 @@ I've always wanted to write my own Z-Machine, and this one is starting to work r
 I think the above points will take us from "meh another Z-Machine" to a reference-quality Inform implementation that leverages AI to push the envelope of Interactive Fiction. A product.
 
 ## What's Next Next (After That, 75% Probability)
-- Voice Changer: The Art Director can optionally change the text narrator's voice if we want, while remaining faithful to the story line. If you want Snoop or Walken to narrate the story, let's do it
+- Voice Changer: The Art Director can optionally change the text narrator's voice if we want, while remaining faithful to the story line. If you want Snoop or Walken to narrate the story, let's do it. Note that this opens the door for machine translation as well. Let's bring IF classics to non-English speakers.
 - Speech Mode: Enter commands as speech and the narrator talks back to you, for interactive fiction during roadtrips. It's a long drive from Florida to Maine, why not play Hitchhiker's Guide to keep you mentally sharp while you drive? Will require cheap Text-to-Speech and Speec-to-Text models, but I'm up for it.
 
 The above points just sound cool as hell.
