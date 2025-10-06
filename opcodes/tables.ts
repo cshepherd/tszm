@@ -100,14 +100,12 @@ TABLE_0OP[0x0d] = d0(0x0d, {
 // --- 1OP opcodes ---
 TABLE_1OP[0x00] = d1(0x00, {
   name: "jz",
-  operandKinds: ["var"],
   doesBranch: true,
   handler: (vm, ops, ctx) => h_jz(vm, ops, ctx),
 });
 
 TABLE_1OP[0x01] = d1(0x01, {
   name: "get_sibling",
-  operandKinds: ["var"],
   doesStore: true,
   doesBranch: true,
   handler: (vm, ops, ctx) => h_get_sibling(vm, ops, ctx),
@@ -115,7 +113,6 @@ TABLE_1OP[0x01] = d1(0x01, {
 
 TABLE_1OP[0x02] = d1(0x02, {
   name: "get_child",
-  operandKinds: ["var"],
   doesStore: true,
   doesBranch: true,
   handler: (vm, ops, ctx) => h_get_child(vm, ops, ctx),
@@ -123,14 +120,12 @@ TABLE_1OP[0x02] = d1(0x02, {
 
 TABLE_1OP[0x03] = d1(0x03, {
   name: "get_parent",
-  operandKinds: ["var"],
   doesStore: true,
   handler: (vm, ops, ctx) => h_get_parent(vm, ops, ctx),
 });
 
 TABLE_1OP[0x04] = d1(0x04, {
   name: "get_prop_len",
-  operandKinds: ["var"],
   doesStore: true,
   handler: (vm, ops, ctx) => h_get_prop_len(vm, ops, ctx),
 });
@@ -149,13 +144,11 @@ TABLE_1OP[0x06] = d1(0x06, {
 
 TABLE_1OP[0x07] = d1(0x07, {
   name: "print_addr",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_print_addr(vm, ops),
 });
 
 TABLE_1OP[0x08] = d1(0x08, {
   name: "call_1s",
-  operandKinds: ["var"],
   minVersion: 4,
   doesStore: true,
   handler: (vm, ops, ctx) => h_call_1s(vm, ops, ctx),
@@ -163,31 +156,26 @@ TABLE_1OP[0x08] = d1(0x08, {
 
 TABLE_1OP[0x09] = d1(0x09, {
   name: "remove_obj",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_remove_obj(vm, ops),
 });
 
 TABLE_1OP[0x0a] = d1(0x0a, {
   name: "print_obj",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_print_obj(vm, ops),
 });
 
 TABLE_1OP[0x0b] = d1(0x0b, {
   name: "ret",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_ret(vm, ops),
 });
 
 TABLE_1OP[0x0c] = d1(0x0c, {
   name: "jump",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_jump(vm, ops),
 });
 
 TABLE_1OP[0x0d] = d1(0x0d, {
   name: "print_paddr",
-  operandKinds: ["var"],
   handler: (vm, ops) => h_print_paddr(vm, ops),
 });
 
@@ -201,7 +189,6 @@ TABLE_1OP[0x0e] = d1(0x0e, {
 
 TABLE_1OP[0x0f] = d1(0x0f, {
   name: "not",
-  operandKinds: ["var"],
   maxVersion: 4,
   doesStore: true,
   handler: (vm, ops) => h_not(vm, ops),
@@ -235,14 +222,14 @@ TABLE_2OP[0x03] = d2(0x03, {
 
 TABLE_2OP[0x04] = d2(0x04, {
   name: "dec_chk",
-  operandKinds: ["var", "var"],
+  operandKinds: ["small", "var"],
   doesBranch: true,
   handler: (vm, ops, ctx) => h_dec_chk(vm, ops, ctx),
 });
 
 TABLE_2OP[0x05] = d2(0x05, {
   name: "inc_chk",
-  operandKinds: ["var", "var"],
+  operandKinds: ["small", "var"],
   doesBranch: true,
   handler: (vm, ops, ctx) => h_inc_chk(vm, ops, ctx),
 });
