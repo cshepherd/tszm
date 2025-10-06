@@ -4,13 +4,13 @@ import { h_and, h_or, h_not, h_test } from "./handlers/logic";
 import { h_rtrue, h_rfalse, h_ret, h_ret_popped, h_quit, h_jz, h_jl, h_jg, h_je, h_jump } from "./handlers/flow";
 import { h_print, h_print_ret, h_new_line, h_print_num, h_print_addr, h_print_paddr } from "./handlers/text";
 import { h_pop, h_push, h_pull, h_random } from "./handlers/stack";
-import { h_nop, h_show_status, h_verify } from "./handlers/misc";
+import { h_nop, h_show_status, h_verify, h_piracy } from "./handlers/misc";
 import { h_get_sibling, h_get_child, h_get_parent, h_remove_obj, h_print_obj, h_test_attr, h_set_attr, h_clear_attr, h_jin, h_insert_obj } from "./handlers/objects";
 import { h_get_prop_len, h_get_prop, h_get_prop_addr, h_put_prop } from "./handlers/properties";
 import { h_inc, h_dec, h_load, h_store, h_inc_chk, h_dec_chk } from "./handlers/variables";
-import { h_call, h_call_1s } from "./handlers/call";
+import { h_call, h_call_1s, h_call_2s } from "./handlers/call";
 import { h_loadw, h_loadb, h_storew, h_storeb } from "./handlers/memory";
-import { h_print_char, h_sread, h_print_table } from "./handlers/io";
+import { h_print_char, h_sread, h_print_table, h_split_window, h_set_window, h_erase_window, h_erase_line, h_set_cursor, h_get_cursor, h_set_text_style, h_buffer_mode, h_output_stream, h_input_stream, h_sound_effect, h_read_char } from "./handlers/io";
 import { h_log_shift, h_art_shift, h_set_font, h_save_undo, h_restore_undo, h_print_unicode, h_check_unicode } from "./handlers/extended";
 
 // Per-family opcode tables. Undefined entries = illegal or unimplemented.
@@ -95,7 +95,14 @@ TABLE_0OP[0x0d] = d0(0x0d, {
 });
 
 // TABLE_0OP[0x0e] = extended (v5+) - handled specially in decode
-// TABLE_0OP[0x0f] = piracy (v5+) - TODO: implement if needed
+
+TABLE_0OP[0x0f] = d0(0x0f, {
+  name: "piracy",
+  operandKinds: [],
+  minVersion: 5,
+  doesBranch: true,
+  handler: (vm, ops, ctx) => h_piracy(vm, ops, ctx),
+});
 
 // --- 1OP opcodes ---
 TABLE_1OP[0x00] = d1(0x00, {
@@ -369,7 +376,13 @@ TABLE_2OP[0x18] = d2(0x18, {
   handler: (vm, ops) => h_mod(vm, ops),
 });
 
-// TABLE_2OP[0x19] = call_2s (v4+) - TODO: implement
+TABLE_2OP[0x19] = d2(0x19, {
+  name: "call_2s",
+  minVersion: 4,
+  doesStore: true,
+  handler: (vm, ops, ctx) => h_call_2s(vm, ops, ctx),
+});
+
 // TABLE_2OP[0x1a] = call_2n (v5+) - TODO: implement
 // TABLE_2OP[0x1b] = set_colour (v5+) - TODO: implement
 // TABLE_2OP[0x1c] = throw (v5+) - TODO: implement
@@ -431,8 +444,17 @@ TABLE_VAR[0x09] = dv(0x09, {
   handler: (vm, ops) => h_pull(vm, ops),
 });
 
-// TABLE_VAR[0x0a] = split_window (v3+) - TODO
-// TABLE_VAR[0x0b] = set_window (v3+) - TODO
+TABLE_VAR[0x0a] = dv(0x0a, {
+  name: "split_window",
+  minVersion: 3,
+  handler: (vm, ops) => h_split_window(vm, ops),
+});
+
+TABLE_VAR[0x0b] = dv(0x0b, {
+  name: "set_window",
+  minVersion: 3,
+  handler: (vm, ops) => h_set_window(vm, ops),
+});
 
 TABLE_VAR[0x0c] = dv(0x0c, {
   name: "not",
@@ -441,18 +463,74 @@ TABLE_VAR[0x0c] = dv(0x0c, {
   handler: (vm, ops) => h_not(vm, ops),
 });
 
-// TABLE_VAR[0x0d] = call_vs (v4+) - same as call
+TABLE_VAR[0x0d] = dv(0x0d, {
+  name: "call_vs",
+  minVersion: 4,
+  doesStore: true,
+  handler: (vm, ops, ctx) => h_call(vm, ops, ctx),
+});
 // TABLE_VAR[0x0e] = call_vs2 (v4+) - TODO
-// TABLE_VAR[0x0f] = erase_window (v4+) - TODO
-// TABLE_VAR[0x10] = erase_line (v4+) - TODO
-// TABLE_VAR[0x11] = set_cursor (v4+) - TODO
-// TABLE_VAR[0x12] = get_cursor (v4+) - TODO
-// TABLE_VAR[0x13] = set_text_style (v4+) - TODO
-// TABLE_VAR[0x14] = buffer_mode (v4+) - TODO
-// TABLE_VAR[0x15] = output_stream (v3+) - TODO
-// TABLE_VAR[0x16] = input_stream (v3+) - TODO
-// TABLE_VAR[0x17] = sound_effect (v3+) - TODO
-// TABLE_VAR[0x18] = read_char (v4+) - TODO
+
+TABLE_VAR[0x0f] = dv(0x0f, {
+  name: "erase_window",
+  minVersion: 4,
+  handler: (vm, ops) => h_erase_window(vm, ops),
+});
+
+TABLE_VAR[0x10] = dv(0x10, {
+  name: "erase_line",
+  minVersion: 4,
+  handler: (vm, ops) => h_erase_line(vm, ops),
+});
+
+TABLE_VAR[0x11] = dv(0x11, {
+  name: "set_cursor",
+  minVersion: 4,
+  handler: (vm, ops) => h_set_cursor(vm, ops),
+});
+
+TABLE_VAR[0x12] = dv(0x12, {
+  name: "get_cursor",
+  minVersion: 4,
+  handler: (vm, ops) => h_get_cursor(vm, ops),
+});
+
+TABLE_VAR[0x13] = dv(0x13, {
+  name: "set_text_style",
+  minVersion: 4,
+  handler: (vm, ops) => h_set_text_style(vm, ops),
+});
+
+TABLE_VAR[0x14] = dv(0x14, {
+  name: "buffer_mode",
+  minVersion: 4,
+  handler: (vm, ops) => h_buffer_mode(vm, ops),
+});
+
+TABLE_VAR[0x15] = dv(0x15, {
+  name: "output_stream",
+  minVersion: 3,
+  handler: (vm, ops) => h_output_stream(vm, ops),
+});
+
+TABLE_VAR[0x16] = dv(0x16, {
+  name: "input_stream",
+  minVersion: 3,
+  handler: (vm, ops) => h_input_stream(vm, ops),
+});
+
+TABLE_VAR[0x17] = dv(0x17, {
+  name: "sound_effect",
+  minVersion: 3,
+  handler: (vm, ops) => h_sound_effect(vm, ops),
+});
+
+TABLE_VAR[0x18] = dv(0x18, {
+  name: "read_char",
+  minVersion: 4,
+  doesStore: true,
+  handler: async (vm, ops, ctx) => await h_read_char(vm, ops, ctx),
+});
 // TABLE_VAR[0x19] = scan_table (v4+) - TODO
 // TABLE_VAR[0x1a] = not (v1-4) - handled by 0x0c above
 // TABLE_VAR[0x1b] = call_vn (v5+) - TODO

@@ -105,7 +105,9 @@ class ZMachine {
 
   getLocalVariableValue(variableNumber: number): any {
     // Local variables are 1-indexed, array is 0-indexed
-    return this.localVariables[variableNumber - 1];
+    const value = this.localVariables[variableNumber - 1];
+    // If accessing a local that doesn't exist in current routine, return 0
+    return value !== undefined ? value : 0;
   }
 
   setLocalVariableValue(variableNumber: number, value: number): any {

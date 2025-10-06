@@ -174,6 +174,24 @@ export class ZConsole implements ZMInputOutputDevice {
       this.rl.prompt();
 
       this.rl.once("line", (line) => {
+        // Check for trace commands
+        const traceMatch = line.trim().match(/^\/trace\s+(on|off)$/);
+        if (traceMatch) {
+          const arg = traceMatch[1];
+          if (this.zm) {
+            if (arg === "on") {
+              this.zm.setTrace(true);
+              console.log("Trace enabled");
+            } else {
+              this.zm.setTrace(false);
+              console.log("Trace disabled");
+            }
+          } else {
+            console.log("ZMachine not initialized");
+          }
+          return this.readLine().then(resolve);
+        }
+
         // Check for ZMCDN commands
         const zmcdnMatch = line.trim().match(/^\/zmcdn\s+(.+)$/);
         if (zmcdnMatch) {
