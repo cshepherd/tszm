@@ -9,17 +9,17 @@
 - Compatibility with z1-z6 (except text-windowing, graphics, sound)
 
 ## Current Status
-04-Oct-2025: Many compatibility fixes have been made, most games are playable. I'm currently drawing the line at text "window", graphics, and sound functionality, meaning just about all the .z3s are fine.
-
 05-Oct-2025: "Naive" ZMCDN image generation works. We ship raw scene information off to gpt-image-1 and get an image to display in sixel format. For a demo, run this in [iTerm2](https://iterm2.com) or other sixel-compatible terminal:
 `curl https://cshepherd.fr/sample2.txt`
+
+06-Oct-2025: The Great Refactor happened. Trace output is much nicer and more complete, and tracing itself can be toggled in-game with `/trace on` and `/trace off`. And yes, we now have unit test coverage. Compatibility: z3 should be completely playable, working on z4/z5 now, but most effort is focusing on ZMCDN where the Game Master and Illustrator LLMs play.
 
 I am pleased to report we have a roadmap.
 
 ## What's Next (05-Oct-2025, 100% Probability)
 I've always wanted to write my own Z-Machine, and this one is starting to work really well after just one week's effort! I could stop here and be pretty happy with myself. But then again, I'm not so sure, because the _product_ has a lot of potential and with another week of hard work, I think this could truly push the envelope of Interactive Fiction. With that in mind, here's what we gotta do before I'll be ready to claim "release quality," and it's happening this week, baby:
-- Refactor the opcodes: Look, those giant 'case' statements suck and there's a fair bit of concern-separation that needs to happen because I was more concerned with getting something working than elegance. Now I'm more concerned about elegance. Look for well-structured opcodes that are _unit tested_.
-- Art Director: An exciting new chunk of architecture will sit betweeen the Z-Machine and the ZMCDN. The Art Director will take "inside information" (since we control the Z-Machine after all) in addition to text output to formulate an intelligent JSON prompt to the ZMCDN, resulting in fewer unnecessary images, and much higher illustrative accuracy.
+- Refactor and unit test coverage: DONE
+- Game Master: An exciting new chunk of architecture will sit betweeen the Z-Machine and the ZMCDN. The Game Master will take "inside information" (since we control the Z-Machine after all) in addition to text output to formulate an intelligent JSON prompt to the ZMCDN, resulting in fewer unnecessary images, and much higher illustrative accuracy.
 - ZMCDN changes: With the above changes, maybe I could stick with gpt-image-1 at 13 cents per illustration, but probably the hell not. With SDXL-Turbo, for example, we get "free" images, and low enough resolution to get that chunky-pixel format that could go nicely with Interactive Fiction (Bonus: Low res images would work nicely for future Apple II ZMCDN integration, never say never).
 
 I think the above points will take us from "meh another Z-Machine" to a reference-quality Inform implementation that leverages AI to push the envelope of Interactive Fiction. A product.
