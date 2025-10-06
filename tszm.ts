@@ -41,8 +41,10 @@ async function main() {
   try {
     await zm.load();
     consoleDevice.setZMachine(zm);
-    console.log("Header:", zm.getHeader());
-    console.log("Starting execution...");
+    if (traceEnabled) {
+      console.log("Header:", zm.getHeader());
+      console.log("Starting execution...");
+    }
 
     for (;;) {
       await zm.executeInstruction();
