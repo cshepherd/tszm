@@ -23,7 +23,13 @@ export function h_new_line(vm: any) {
 }
 
 export function h_print_num(vm: any, [n]: number[]) {
-  vm._printNum?.(n);
+  // Convert to signed 16-bit
+  const signedNum = n > 32767 ? n - 65536 : n;
+  if (vm.inputOutputDevice) {
+    vm.inputOutputDevice.writeString(signedNum.toString());
+  } else {
+    process.stdout.write(signedNum.toString());
+  }
 }
 
 export function h_print_addr(vm: any, [addr]: number[]) {
