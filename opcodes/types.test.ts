@@ -38,7 +38,7 @@ describe("Opcode Types and Helpers", () => {
     });
 
     it("should define InstrDescriptor interface", () => {
-      const mockHandler = (vm: any, operands: number[], ctx: ExecCtx) => {};
+      const mockHandler = (_vm: any, _operands: number[], _ctx: ExecCtx) => {};
 
       const descriptor: InstrDescriptor = {
         name: "test",
@@ -54,7 +54,7 @@ describe("Opcode Types and Helpers", () => {
     });
 
     it("should allow optional fields in InstrDescriptor", () => {
-      const mockHandler = (vm: any, operands: number[], ctx: ExecCtx) => {};
+      const mockHandler = (_vm: any, _operands: number[], _ctx: ExecCtx) => {};
 
       const descriptor: InstrDescriptor = {
         name: "test",
@@ -493,7 +493,7 @@ describe("Opcode Types and Helpers", () => {
     });
 
     it("should handle handlers that do nothing", () => {
-      const noopHandler = () => {};
+      const noopHandler = (_vm: any, _operands: number[], _ctx: ExecCtx) => {};
       const descriptor = d0(0x04, {
         name: "nop",
         handler: noopHandler,
