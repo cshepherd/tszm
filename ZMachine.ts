@@ -56,7 +56,35 @@ class ZMachine {
     }
 
     // init pc to first instruction in high memory + offset from header
-    this.pc = this.header?.initialProgramCounter || 0;
+    const version = this.header?.version || 1;
+
+    if (version <= 5) {
+      // Versions 1-5: PC is stored as a byte address in the header
+      // For V4-5, we need to call it as a routine to set up locals properly
+      const byteAddress = this.header?.initialProgramCounter || 0;
+
+      if (version <= 3) {
+        // V1-3: Just set PC directly - no routine call needed
+        this.pc = byteAddress;
+      } else {
+        // V4-5: Header contains a byte address that needs conversion to packed address
+        // h_call will multiply by 4 to get back the byte address
+        this.pc = 0;
+        const packedAddress = Math.floor(byteAddress / 4);
+
+        const { h_call } = require("./opcodes/handlers/call");
+        const ctx = { store: () => {} };
+        h_call(this, [packedAddress], ctx);
+      }
+    } else {
+      // V6+: Header contains a packed routine address
+      this.pc = 0;
+      const packedAddress = this.header?.initialProgramCounter || 0;
+
+      const { h_call } = require("./opcodes/handlers/call");
+      const ctx = { store: () => {} };
+      h_call(this, [packedAddress], ctx);
+    }
   }
 
   private parseHeader(buffer: Buffer) {
