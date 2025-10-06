@@ -1,4 +1,3 @@
-// Node-compatible Z-machine file I/O (TypeScript)
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
 import { readFile } from "fs/promises";
 import { decodeNext } from "./opcodes/decode";
@@ -292,8 +291,7 @@ class ZMachine {
   }
 
   /**
-   * Execute a single instruction using the new handler-based architecture.
-   * This replaces the old executeInstruction() with its giant switch statements.
+   * Execute a single instruction using the handler-based architecture.
    */
   async step(): Promise<void> {
     const startPC = this.pc;
@@ -345,13 +343,12 @@ class ZMachine {
   }
 
   /**
-   * Public API for executing an instruction. Uses the new step() method.
+   * Public API for executing an instruction. Just invokes step().
    */
   async executeInstruction(): Promise<void> {
     return this.step();
   }
 
-  // --- Wire these to existing implementation ---
   _storeVariable(varNum: number, value: number): void {
     this.setVariableValue(varNum, value);
   }
