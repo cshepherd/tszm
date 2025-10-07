@@ -8,6 +8,12 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -62,3 +68,18 @@ jobs:
           console.log(line('lines'));
           NODE
 
+      - name: Upload Pages artifact (coverage site)
+        if: ${{ !env.ACT }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: coverage/lcov-report
+
+      - name: Deploy coverage to GitHub Pages
+        if: ${{ !env.ACT }}
+        uses: actions/deploy-pages@v4
+
+      - name: Add coverage link to summary
+        if: ${{ !env.ACT }}
+        run: |
+          echo "### Coverage site" >> "$GITHUB_STEP_SUMMARY"
+          echo "Browse: https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/coverage/" >> "$GITHUB_STEP_SUMMARY"
