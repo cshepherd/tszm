@@ -45,13 +45,14 @@ export class ZConsole implements ZMInputOutputDevice {
       const zmcdnInput = new ZMCDNInput();
       zmcdnInput.zmcdnSessionID = this.zmcdnSessionId;
       zmcdnInput.lastZMachineOutput = this.ZMCDNText;
-      this.ZMCDNText = "";
+      this.ZMCDNText = '';
 
       // Get gameId from header
       if (!this.zm) {
         console.error("ZMachine not initialized");
         return;
       }
+
       zmcdnInput.lastZMachineInput = this.zm.getLastRead();
 
       const header = this.zm.getHeader();
@@ -63,17 +64,15 @@ export class ZConsole implements ZMInputOutputDevice {
       zmcdnInput.gameIdentifier = `${header.release}.${header.serial}`;
 
       const playerParent = this.zm.findPlayerParent();
-      if (playerParent) {
+      if(playerParent) {
         zmcdnInput.playerLocation = playerParent.name;
       } else {
-        zmcdnInput.playerLocation = "";
+        zmcdnInput.playerLocation = '';
       }
 
-      zmcdnInput.illustrationFormat = "sixel";
+      zmcdnInput.illustrationFormat = 'sixel';
 
       const url = `${this.zmcdnServer}/illustrateMove`;
-      //      console.log(JSON.stringify(zmcdnInput));
-
       try {
         const data = await this.postJSON(url, zmcdnInput);
         console.error(`Received ${data.length} bytes of sixel data`);
@@ -105,18 +104,19 @@ export class ZConsole implements ZMInputOutputDevice {
       };
 
       const req = http.request(options, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          res.resume();
-          return;
-        }
-
         let responseData = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => {
           responseData += chunk;
         });
-        res.on("end", () => resolve(responseData));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            console.error(`HTTP ${res.statusCode} error response:`, responseData);
+            reject(new Error(`HTTP ${res.statusCode}: ${responseData}`));
+            return;
+          }
+          resolve(responseData);
+        });
       });
 
       req.on("error", reject);
