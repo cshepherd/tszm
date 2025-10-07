@@ -273,16 +273,16 @@ export function h_insert_obj(vm: any, [objectId, destId]: number[]) {
   const objAddress = vm.getObjectAddress(objectId);
   const destAddress = vm.getObjectAddress(destId);
 
-  if(!vm.playerObjectNumber) {
-    if(vm.lastRead && ( !vm.lastRead.startsWith('dr') ) && ( !vm.lastRead.startsWith('ta') ))
-      vm.setPlayerObjectNumber(objectId);
-  }
-
   // First, remove object from its current parent
   if (vm.header.version <= 3) {
     const oldParent = vm.memory.readUInt8(objAddress + 4);
 
     if (oldParent !== 0) {
+      if (!vm.playerObjectNumber) {
+        if (vm.lastRead)
+          if (!vm.lastRead.startsWith("dr") && !vm.lastRead.startsWith("ta"))
+            vm.setPlayerObjectNumber(objectId);
+      }
       const oldParentAddress = vm.getObjectAddress(oldParent);
       const oldParentChild = vm.memory.readUInt8(oldParentAddress + 6);
 
@@ -311,6 +311,11 @@ export function h_insert_obj(vm: any, [objectId, destId]: number[]) {
     vm.memory.writeUInt8(destId, objAddress + 4);
   } else {
     const oldParent = vm.memory.readUInt16BE(objAddress + 6);
+    if (!vm.playerObjectNumber) {
+      if (vm.lastRead)
+        if (!vm.lastRead.startsWith("dr") && !vm.lastRead.startsWith("ta"))
+          vm.setPlayerObjectNumber(objectId);
+    }
 
     if (oldParent !== 0) {
       const oldParentAddress = vm.getObjectAddress(oldParent);

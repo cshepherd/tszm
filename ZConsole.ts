@@ -45,7 +45,7 @@ export class ZConsole implements ZMInputOutputDevice {
       const zmcdnInput = new ZMCDNInput();
       zmcdnInput.zmcdnSessionID = this.zmcdnSessionId;
       zmcdnInput.lastZMachineOutput = this.ZMCDNText;
-      this.ZMCDNText = '';
+      this.ZMCDNText = "";
 
       // Get gameId from header
       if (!this.zm) {
@@ -63,15 +63,16 @@ export class ZConsole implements ZMInputOutputDevice {
       zmcdnInput.gameIdentifier = `${header.release}.${header.serial}`;
 
       const playerParent = this.zm.findPlayerParent();
-      if(playerParent) {
+      if (playerParent) {
         zmcdnInput.playerLocation = playerParent.name;
       } else {
-        zmcdnInput.playerLocation = '';
+        zmcdnInput.playerLocation = "";
       }
 
-      zmcdnInput.illustrationFormat = 'sixel';
+      zmcdnInput.illustrationFormat = "sixel";
 
       const url = `${this.zmcdnServer}/illustrateMove`;
+      //      console.log(JSON.stringify(zmcdnInput));
 
       try {
         const data = await this.postJSON(url, zmcdnInput);

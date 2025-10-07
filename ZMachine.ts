@@ -32,7 +32,7 @@ class ZMachine {
   private localVariables: number[] = []; // Current routine's local variables
   private trace: boolean = false; // Enable debug logging
   private playerObjectNumber: number = 0; // Player object number
-  private lastRead: string = ''; // Last command entered (to help find player object)
+  private lastRead: string = ""; // Last command entered (to help find player object)
 
   constructor(
     private filePath: string,
@@ -111,6 +111,10 @@ class ZMachine {
 
   setPlayerObjectNumber(objectNumber: number): any {
     this.playerObjectNumber = objectNumber;
+  }
+
+  getPlayerObjectNumber(): any {
+    return this.playerObjectNumber;
   }
 
   setLastRead(lastRead: string): any {
