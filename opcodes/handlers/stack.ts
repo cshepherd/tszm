@@ -27,7 +27,11 @@ export function h_pull(vm: any, [varNum]: number[]) {
   vm.setVariableValue(varNum, value);
 }
 
-export function h_random(vm: any, [range]: number[], ctx: { store?: (v: number) => void }) {
+export function h_random(
+  vm: any,
+  [range]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   const signedRange = toSigned16(range);
 
   let randomValue: number;

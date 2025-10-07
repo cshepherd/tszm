@@ -318,75 +318,75 @@ describe("Opcode Tables", () => {
   });
 
   describe("TABLE_VAR (variable-operand opcodes)", () => {
-    it("should have call at 0x00 with store", () => {
-      const instr = TABLE_VAR[0x00];
+    it("should have call at 0xE0 with store", () => {
+      const instr = TABLE_VAR[0xe0];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("call");
       expect(instr!.kind).toBe("VAR");
-      expect(instr!.opcode).toBe(0x00);
+      expect(instr!.opcode).toBe(0xe0);
       expect(instr!.doesStore).toBe(true);
       expect(instr!.handler).toBeDefined();
     });
 
-    it("should have storew at 0x01", () => {
-      const instr = TABLE_VAR[0x01];
+    it("should have storew at 0xE1", () => {
+      const instr = TABLE_VAR[0xe1];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("storew");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have storeb at 0x02", () => {
-      const instr = TABLE_VAR[0x02];
+    it("should have storeb at 0xE2", () => {
+      const instr = TABLE_VAR[0xe2];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("storeb");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have put_prop at 0x03", () => {
-      const instr = TABLE_VAR[0x03];
+    it("should have put_prop at 0xE3", () => {
+      const instr = TABLE_VAR[0xe3];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("put_prop");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have sread at 0x04", () => {
-      const instr = TABLE_VAR[0x04];
+    it("should have sread at 0xE4", () => {
+      const instr = TABLE_VAR[0xe4];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("sread");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have print_char at 0x05", () => {
-      const instr = TABLE_VAR[0x05];
+    it("should have print_char at 0xE5", () => {
+      const instr = TABLE_VAR[0xe5];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("print_char");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have print_num at 0x06", () => {
-      const instr = TABLE_VAR[0x06];
+    it("should have print_num at 0xE6", () => {
+      const instr = TABLE_VAR[0xe6];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("print_num");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have random at 0x07 with store", () => {
-      const instr = TABLE_VAR[0x07];
+    it("should have random at 0xE7 with store", () => {
+      const instr = TABLE_VAR[0xe7];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("random");
       expect(instr!.kind).toBe("VAR");
       expect(instr!.doesStore).toBe(true);
     });
 
-    it("should have push at 0x08", () => {
-      const instr = TABLE_VAR[0x08];
+    it("should have push at 0xE8", () => {
+      const instr = TABLE_VAR[0xe8];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("push");
       expect(instr!.kind).toBe("VAR");
     });
 
-    it("should have pull at 0x09 with minVersion", () => {
-      const instr = TABLE_VAR[0x09];
+    it("should have pull at 0xE9 with minVersion", () => {
+      const instr = TABLE_VAR[0xe9];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("pull");
       expect(instr!.kind).toBe("VAR");
@@ -395,14 +395,14 @@ describe("Opcode Tables", () => {
 
     it("should have screen control opcodes with minVersion", () => {
       const screenOps = [
-        { opcode: 0x0a, name: "split_window", minVersion: 3 },
-        { opcode: 0x0b, name: "set_window", minVersion: 3 },
-        { opcode: 0x0f, name: "erase_window", minVersion: 4 },
-        { opcode: 0x10, name: "erase_line", minVersion: 4 },
-        { opcode: 0x11, name: "set_cursor", minVersion: 4 },
-        { opcode: 0x12, name: "get_cursor", minVersion: 4 },
-        { opcode: 0x13, name: "set_text_style", minVersion: 4 },
-        { opcode: 0x14, name: "buffer_mode", minVersion: 4 },
+        { opcode: 0xea, name: "split_window", minVersion: 3 },
+        { opcode: 0xeb, name: "set_window", minVersion: 3 },
+        { opcode: 0xed, name: "erase_window", minVersion: 4 },
+        { opcode: 0xee, name: "erase_line", minVersion: 4 },
+        { opcode: 0xef, name: "set_cursor", minVersion: 4 },
+        { opcode: 0xf0, name: "get_cursor", minVersion: 4 },
+        { opcode: 0xf1, name: "set_text_style", minVersion: 4 },
+        { opcode: 0xf2, name: "buffer_mode", minVersion: 4 },
       ];
 
       screenOps.forEach(({ opcode, name, minVersion }) => {
@@ -414,8 +414,8 @@ describe("Opcode Tables", () => {
       });
     });
 
-    it("should have not at 0x0C with store and minVersion", () => {
-      const instr = TABLE_VAR[0x0c];
+    it("should have not at 0xF8 with store and minVersion", () => {
+      const instr = TABLE_VAR[0xf8];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("not");
       expect(instr!.kind).toBe("VAR");
@@ -423,10 +423,10 @@ describe("Opcode Tables", () => {
       expect(instr!.doesStore).toBe(true);
     });
 
-    it("should have call_vs at 0x0D with store and minVersion", () => {
-      const instr = TABLE_VAR[0x0d];
+    it("should have call_vs2 at 0xEC with store and minVersion", () => {
+      const instr = TABLE_VAR[0xec];
       expect(instr).toBeDefined();
-      expect(instr!.name).toBe("call_vs");
+      expect(instr!.name).toBe("call_vs2");
       expect(instr!.kind).toBe("VAR");
       expect(instr!.minVersion).toBe(4);
       expect(instr!.doesStore).toBe(true);
@@ -434,9 +434,9 @@ describe("Opcode Tables", () => {
 
     it("should have I/O stream opcodes with minVersion", () => {
       const ioOps = [
-        { opcode: 0x15, name: "output_stream", minVersion: 3 },
-        { opcode: 0x16, name: "input_stream", minVersion: 3 },
-        { opcode: 0x17, name: "sound_effect", minVersion: 3 },
+        { opcode: 0xf3, name: "output_stream", minVersion: 3 },
+        { opcode: 0xf4, name: "input_stream", minVersion: 3 },
+        { opcode: 0xf5, name: "sound_effect", minVersion: 3 },
       ];
 
       ioOps.forEach(({ opcode, name, minVersion }) => {
@@ -448,8 +448,8 @@ describe("Opcode Tables", () => {
       });
     });
 
-    it("should have read_char at 0x18 with store and minVersion", () => {
-      const instr = TABLE_VAR[0x18];
+    it("should have read_char at 0xF6 with store and minVersion", () => {
+      const instr = TABLE_VAR[0xf6];
       expect(instr).toBeDefined();
       expect(instr!.name).toBe("read_char");
       expect(instr!.kind).toBe("VAR");
@@ -697,8 +697,8 @@ describe("Opcode Tables", () => {
         { table: TABLE_2OP, opcode: 0x09, name: "and" },
         { table: TABLE_2OP, opcode: 0x14, name: "add" },
         { table: TABLE_2OP, opcode: 0x15, name: "sub" },
-        { table: TABLE_VAR, opcode: 0x00, name: "call" },
-        { table: TABLE_VAR, opcode: 0x07, name: "random" },
+        { table: TABLE_VAR, opcode: 0xe0, name: "call" },
+        { table: TABLE_VAR, opcode: 0xe7, name: "random" },
         { table: TABLE_EXT, opcode: 0x02, name: "log_shift" },
       ];
 

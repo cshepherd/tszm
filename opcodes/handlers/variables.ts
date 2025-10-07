@@ -14,7 +14,11 @@ export function h_dec(vm: any, [varNum]: number[]) {
   vm.setVariableValue(varNum, (value - 1) & 0xffff);
 }
 
-export function h_load(vm: any, [varNum]: number[], ctx: { store?: (v: number) => void }) {
+export function h_load(
+  vm: any,
+  [varNum]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   const value = vm.getVariableValue(varNum);
   ctx.store?.(value);
 }
@@ -23,7 +27,11 @@ export function h_store(vm: any, [varNum, value]: number[]) {
   vm.setVariableValue(varNum, value);
 }
 
-export function h_inc_chk(vm: any, [varNum, compareValue]: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_inc_chk(
+  vm: any,
+  [varNum, compareValue]: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   const value = vm.getVariableValue(varNum);
   const newValue = (value + 1) & 0xffff;
   vm.setVariableValue(varNum, newValue);
@@ -33,7 +41,11 @@ export function h_inc_chk(vm: any, [varNum, compareValue]: number[], ctx: { bran
   ctx.branch?.(signedNew > signedCompare);
 }
 
-export function h_dec_chk(vm: any, [varNum, compareValue]: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_dec_chk(
+  vm: any,
+  [varNum, compareValue]: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   const value = vm.getVariableValue(varNum);
   const newValue = (value - 1) & 0xffff;
   vm.setVariableValue(varNum, newValue);

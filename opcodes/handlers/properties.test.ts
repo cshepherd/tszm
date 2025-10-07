@@ -5,7 +5,10 @@ import {
   h_put_prop,
 } from "./properties";
 
-function createMockVMv3(objectTableAddr: number = 0x100, propertyDefaultsAddr: number = 0x50) {
+function createMockVMv3(
+  objectTableAddr: number = 0x100,
+  propertyDefaultsAddr: number = 0x50,
+) {
   const memory = Buffer.alloc(2048);
   return {
     memory,
@@ -17,7 +20,10 @@ function createMockVMv3(objectTableAddr: number = 0x100, propertyDefaultsAddr: n
   };
 }
 
-function createMockVMv5(objectTableAddr: number = 0x200, propertyDefaultsAddr: number = 0x50) {
+function createMockVMv5(
+  objectTableAddr: number = 0x200,
+  propertyDefaultsAddr: number = 0x50,
+) {
   const memory = Buffer.alloc(2048);
   return {
     memory,
@@ -220,7 +226,7 @@ describe("Property Handlers", () => {
 
       h_get_prop(vm, [1, 5], {});
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Invalid property size")
+        expect.stringContaining("Invalid property size"),
       );
 
       consoleSpy.mockRestore();
@@ -375,7 +381,7 @@ describe("Property Handlers", () => {
 
       h_put_prop(vm, [1, 5, 100]);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Property 5 not found")
+        expect.stringContaining("Property 5 not found"),
       );
 
       consoleSpy.mockRestore();
@@ -394,7 +400,7 @@ describe("Property Handlers", () => {
 
       h_put_prop(vm, [1, 5, 100]);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Invalid property size")
+        expect.stringContaining("Invalid property size"),
       );
 
       consoleSpy.mockRestore();

@@ -1,4 +1,11 @@
-import { h_inc, h_dec, h_load, h_store, h_inc_chk, h_dec_chk } from "./variables";
+import {
+  h_inc,
+  h_dec,
+  h_load,
+  h_store,
+  h_inc_chk,
+  h_dec_chk,
+} from "./variables";
 
 describe("Variable Handlers", () => {
   describe("h_inc", () => {

@@ -326,7 +326,7 @@ describe("ZConsole", () => {
       expect((console as any).zmcdnServer).toBe("http://example.com:8080");
       expect((console as any).zmcdnEnabled).toBe(true);
       expect(consoleSpy).toHaveBeenCalledWith(
-        "ZMCDN image fetching enabled with server: http://example.com:8080"
+        "ZMCDN image fetching enabled with server: http://example.com:8080",
       );
       expect(result).toBe("actual input");
 
@@ -403,7 +403,7 @@ describe("ZConsole", () => {
       // The promise will hang because the error prevents resolve from being called
       // We just need to verify the error is thrown in the callback
       const promise = console.readChar();
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       // If we get here without the test failing, the error was handled correctly
     });
   });
@@ -439,7 +439,9 @@ describe("ZConsole", () => {
     it("should handle missing ZMachine", async () => {
       const zconsole = new ZConsole("http://localhost:3000");
       (zconsole as any).ZMCDNText = "test";
-      const consoleSpy = jest.spyOn(global.console, "error").mockImplementation();
+      const consoleSpy = jest
+        .spyOn(global.console, "error")
+        .mockImplementation();
 
       await zconsole.processZMCDNText();
 

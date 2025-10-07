@@ -1,11 +1,25 @@
-import { d0, d1, d2, dv, InstrDescriptor, OperandType, CountKind, ExecCtx } from "./types";
+import {
+  d0,
+  d1,
+  d2,
+  dv,
+  InstrDescriptor,
+  OperandType,
+  CountKind,
+  ExecCtx,
+} from "./types";
 
 describe("Opcode Types and Helpers", () => {
   describe("Type definitions", () => {
     it("should define OperandType union type", () => {
-      const validOperandTypes: OperandType[] = ["large", "small", "var", "omit"];
+      const validOperandTypes: OperandType[] = [
+        "large",
+        "small",
+        "var",
+        "omit",
+      ];
 
-      validOperandTypes.forEach(type => {
+      validOperandTypes.forEach((type) => {
         const t: OperandType = type;
         expect(t).toBe(type);
       });
@@ -14,7 +28,7 @@ describe("Opcode Types and Helpers", () => {
     it("should define CountKind union type", () => {
       const validCountKinds: CountKind[] = ["0OP", "1OP", "2OP", "VAR", "EXT"];
 
-      validCountKinds.forEach(kind => {
+      validCountKinds.forEach((kind) => {
         const k: CountKind = kind;
         expect(k).toBe(kind);
       });
@@ -304,15 +318,15 @@ describe("Opcode Types and Helpers", () => {
       expect(descriptor.doesStore).toBe(true);
     });
 
-    it("should create valid VAR descriptor for opcode 0x1F (max)", () => {
+    it("should create valid VAR descriptor for opcode 0xFF (max)", () => {
       const mockHandler = jest.fn();
-      const descriptor = dv(0x1f, {
+      const descriptor = dv(0xff, {
         name: "max_opcode",
         handler: mockHandler,
       });
 
       expect(descriptor.kind).toBe("VAR");
-      expect(descriptor.opcode).toBe(0x1f);
+      expect(descriptor.opcode).toBe(0xff);
     });
 
     it("should throw error for opcode below range", () => {
@@ -328,11 +342,11 @@ describe("Opcode Types and Helpers", () => {
     it("should throw error for opcode above range", () => {
       const mockHandler = jest.fn();
       expect(() => {
-        dv(0x20, {
+        dv(0x100, {
           name: "invalid",
           handler: mockHandler,
         });
-      }).toThrow("VAR opcode out of range: 32");
+      }).toThrow("VAR opcode out of range: 256");
     });
 
     it("should support minVersion for version-specific opcodes", () => {
@@ -366,11 +380,13 @@ describe("Opcode Types and Helpers", () => {
         branch: jest.fn(),
       };
 
-      const mockHandler = jest.fn((vm: any, operands: number[], ctx: ExecCtx) => {
-        expect(vm).toBe(mockVm);
-        expect(operands).toBe(mockOperands);
-        expect(ctx).toBe(mockCtx);
-      });
+      const mockHandler = jest.fn(
+        (vm: any, operands: number[], ctx: ExecCtx) => {
+          expect(vm).toBe(mockVm);
+          expect(operands).toBe(mockOperands);
+          expect(ctx).toBe(mockCtx);
+        },
+      );
 
       const descriptor = d0(0x00, {
         name: "test",
@@ -508,34 +524,50 @@ describe("Opcode Types and Helpers", () => {
   describe("Helper consistency", () => {
     it("should have d0 max at 0x0F (15)", () => {
       const mockHandler = jest.fn();
-      expect(() => d0(0x0f, { name: "test", handler: mockHandler })).not.toThrow();
+      expect(() =>
+        d0(0x0f, { name: "test", handler: mockHandler }),
+      ).not.toThrow();
       expect(() => d0(0x10, { name: "test", handler: mockHandler })).toThrow();
     });
 
     it("should have d1 max at 0x0F (15)", () => {
       const mockHandler = jest.fn();
-      expect(() => d1(0x0f, { name: "test", handler: mockHandler })).not.toThrow();
+      expect(() =>
+        d1(0x0f, { name: "test", handler: mockHandler }),
+      ).not.toThrow();
       expect(() => d1(0x10, { name: "test", handler: mockHandler })).toThrow();
     });
 
     it("should have d2 max at 0x1F (31)", () => {
       const mockHandler = jest.fn();
-      expect(() => d2(0x1f, { name: "test", handler: mockHandler })).not.toThrow();
+      expect(() =>
+        d2(0x1f, { name: "test", handler: mockHandler }),
+      ).not.toThrow();
       expect(() => d2(0x20, { name: "test", handler: mockHandler })).toThrow();
     });
 
-    it("should have dv max at 0x1F (31)", () => {
+    it("should have dv max at 0xFF (255)", () => {
       const mockHandler = jest.fn();
-      expect(() => dv(0x1f, { name: "test", handler: mockHandler })).not.toThrow();
-      expect(() => dv(0x20, { name: "test", handler: mockHandler })).toThrow();
+      expect(() =>
+        dv(0xff, { name: "test", handler: mockHandler }),
+      ).not.toThrow();
+      expect(() => dv(0x100, { name: "test", handler: mockHandler })).toThrow();
     });
 
     it("should all reject negative opcodes", () => {
       const mockHandler = jest.fn();
-      expect(() => d0(-1, { name: "test", handler: mockHandler })).toThrow(/out of range/);
-      expect(() => d1(-1, { name: "test", handler: mockHandler })).toThrow(/out of range/);
-      expect(() => d2(-1, { name: "test", handler: mockHandler })).toThrow(/out of range/);
-      expect(() => dv(-1, { name: "test", handler: mockHandler })).toThrow(/out of range/);
+      expect(() => d0(-1, { name: "test", handler: mockHandler })).toThrow(
+        /out of range/,
+      );
+      expect(() => d1(-1, { name: "test", handler: mockHandler })).toThrow(
+        /out of range/,
+      );
+      expect(() => d2(-1, { name: "test", handler: mockHandler })).toThrow(
+        /out of range/,
+      );
+      expect(() => dv(-1, { name: "test", handler: mockHandler })).toThrow(
+        /out of range/,
+      );
     });
 
     it("should set correct kind for each helper", () => {

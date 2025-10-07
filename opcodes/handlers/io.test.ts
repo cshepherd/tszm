@@ -235,7 +235,7 @@ describe("I/O Handlers", () => {
       await h_sread(vm, [0x100, 0x200]);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        "Memory, input/output device, or header not loaded"
+        "Memory, input/output device, or header not loaded",
       );
 
       consoleSpy.mockRestore();
@@ -402,7 +402,7 @@ describe("I/O Handlers", () => {
       h_print_table(vm, [0x200, 3]); // Address beyond memory
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Invalid address")
+        expect.stringContaining("Invalid address"),
       );
 
       consoleSpy.mockRestore();
@@ -417,7 +417,7 @@ describe("I/O Handlers", () => {
       h_print_table(vm, [0x30, 30, 2]); // Would extend beyond buffer
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("extends beyond memory")
+        expect.stringContaining("extends beyond memory"),
       );
 
       consoleSpy.mockRestore();
@@ -519,7 +519,7 @@ describe("I/O Handlers", () => {
       h_get_cursor(vm, [0x100]);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        "@get_cursor 256 (stub: returning 1,1)"
+        "@get_cursor 256 (stub: returning 1,1)",
       );
 
       consoleSpy.mockRestore();
@@ -677,7 +677,7 @@ describe("I/O Handlers", () => {
       await h_read_char(vm, [1], { store: jest.fn() });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        "@read_char returned 'x' (code 120)"
+        "@read_char returned 'x' (code 120)",
       );
 
       consoleSpy.mockRestore();

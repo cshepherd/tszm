@@ -77,7 +77,7 @@ describe("Memory Handlers", () => {
 
       h_loadw(vm, [0x400, 0], { store: storeFn }); // 0x400 = 1024, out of bounds
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("LOADW: Invalid memory address")
+        expect.stringContaining("LOADW: Invalid memory address"),
       );
       expect(storeFn).not.toHaveBeenCalled();
 
@@ -93,7 +93,7 @@ describe("Memory Handlers", () => {
       // 0x1 + 2*(-1) = 0x1 - 2 = -1 (negative)
       h_loadw(vm, [0x1, 65535], { store: storeFn }); // 65535 = -1 as signed
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("LOADW: Invalid memory address")
+        expect.stringContaining("LOADW: Invalid memory address"),
       );
       expect(storeFn).not.toHaveBeenCalled();
 
@@ -185,7 +185,7 @@ describe("Memory Handlers", () => {
 
       h_loadb(vm, [0x400, 0], { store: storeFn }); // 0x400 = 1024, out of bounds
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("LOADB: Invalid memory address")
+        expect.stringContaining("LOADB: Invalid memory address"),
       );
       expect(storeFn).not.toHaveBeenCalled();
 
@@ -200,7 +200,7 @@ describe("Memory Handlers", () => {
 
       h_loadb(vm, [0x0, 65535], { store: storeFn }); // 65535 = -1, 0x0 + (-1) = -1 (negative)
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("LOADB: Invalid memory address")
+        expect.stringContaining("LOADB: Invalid memory address"),
       );
       expect(storeFn).not.toHaveBeenCalled();
 
@@ -284,7 +284,7 @@ describe("Memory Handlers", () => {
 
       h_storew(vm, [0x400, 0, 0x1234]); // 0x400 = 1024, out of bounds
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("STOREW: Invalid memory address")
+        expect.stringContaining("STOREW: Invalid memory address"),
       );
 
       consoleSpy.mockRestore();
@@ -297,7 +297,7 @@ describe("Memory Handlers", () => {
 
       h_storew(vm, [0x1, 65535, 0x1234]); // 65535 = -1, 0x1 + 2*(-1) = -1 (negative)
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("STOREW: Invalid memory address")
+        expect.stringContaining("STOREW: Invalid memory address"),
       );
 
       consoleSpy.mockRestore();
@@ -380,7 +380,7 @@ describe("Memory Handlers", () => {
 
       h_storeb(vm, [0x400, 0, 0x42]); // 0x400 = 1024, out of bounds
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("STOREB: Invalid memory address")
+        expect.stringContaining("STOREB: Invalid memory address"),
       );
 
       consoleSpy.mockRestore();
@@ -393,7 +393,7 @@ describe("Memory Handlers", () => {
 
       h_storeb(vm, [0x0, 65535, 0x42]); // 65535 = -1, 0x0 + (-1) = -1 (negative)
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("STOREB: Invalid memory address")
+        expect.stringContaining("STOREB: Invalid memory address"),
       );
 
       consoleSpy.mockRestore();

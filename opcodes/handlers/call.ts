@@ -1,6 +1,10 @@
 // Call/routine handlers
 
-export function h_call(vm: any, operands: number[], ctx: { store?: (v: number) => void }) {
+export function h_call(
+  vm: any,
+  operands: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -30,7 +34,7 @@ export function h_call(vm: any, operands: number[], ctx: { store?: (v: number) =
   if (routineAddress >= vm.memory.length) {
     if (vm.trace) {
       console.log(
-        `@call Routine address ${routineAddress.toString(16)} (packed ${packedAddress.toString(16)}) is out of bounds (file size ${vm.memory.length}), returning FALSE`
+        `@call Routine address ${routineAddress.toString(16)} (packed ${packedAddress.toString(16)}) is out of bounds (file size ${vm.memory.length}), returning FALSE`,
       );
     }
     ctx.store?.(0);
@@ -39,7 +43,7 @@ export function h_call(vm: any, operands: number[], ctx: { store?: (v: number) =
 
   if (vm.trace) {
     console.log(
-      `@call Calling routine at ${routineAddress.toString(16)} with ${operands.length - 1} args`
+      `@call Calling routine at ${routineAddress.toString(16)} with ${operands.length - 1} args`,
     );
   }
 
@@ -97,7 +101,11 @@ export function h_call(vm: any, operands: number[], ctx: { store?: (v: number) =
   vm.pc = newPC;
 }
 
-export function h_call_1s(vm: any, [packedAddr]: number[], ctx: { store?: (v: number) => void }) {
+export function h_call_1s(
+  vm: any,
+  [packedAddr]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -126,7 +134,7 @@ export function h_call_1s(vm: any, [packedAddr]: number[], ctx: { store?: (v: nu
   if (routineAddress >= vm.memory.length) {
     if (vm.trace) {
       console.log(
-        `@call_1s Routine address ${routineAddress.toString(16)} (packed ${packedAddr.toString(16)}) is out of bounds (file size ${vm.memory.length}), returning FALSE`
+        `@call_1s Routine address ${routineAddress.toString(16)} (packed ${packedAddr.toString(16)}) is out of bounds (file size ${vm.memory.length}), returning FALSE`,
       );
     }
     ctx.store?.(0);
@@ -160,7 +168,7 @@ export function h_call_1s(vm: any, [packedAddr]: number[], ctx: { store?: (v: nu
 
   if (vm.trace) {
     console.log(
-      `@call_1s Pushed: returnPC=${vm.pc.toString(16)}, storeVar=${storeTarget}, savedLocals=${savedLocalCount}, marker=${frameMarker}`
+      `@call_1s Pushed: returnPC=${vm.pc.toString(16)}, storeVar=${storeTarget}, savedLocals=${savedLocalCount}, marker=${frameMarker}`,
     );
   }
 
@@ -191,7 +199,11 @@ export function h_call_1s(vm: any, [packedAddr]: number[], ctx: { store?: (v: nu
   vm.pc = newPC;
 }
 
-export function h_call_2s(vm: any, operands: number[], ctx: { store?: (v: number) => void }) {
+export function h_call_2s(
+  vm: any,
+  operands: number[],
+  ctx: { store?: (v: number) => void },
+) {
   // call_2s is just call with 1 or 2 arguments (packed routine address + up to 2 args)
   // We can reuse h_call since it handles variable argument counts
   h_call(vm, operands, ctx);

@@ -1,6 +1,10 @@
 // Object tree manipulation handlers
 
-export function h_get_sibling(vm: any, [objectId]: number[], ctx: { store?: (v: number) => void; branch?: (c: boolean) => void }) {
+export function h_get_sibling(
+  vm: any,
+  [objectId]: number[],
+  ctx: { store?: (v: number) => void; branch?: (c: boolean) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -19,7 +23,11 @@ export function h_get_sibling(vm: any, [objectId]: number[], ctx: { store?: (v: 
   ctx.branch?.(siblingValue !== 0);
 }
 
-export function h_get_child(vm: any, [objectId]: number[], ctx: { store?: (v: number) => void; branch?: (c: boolean) => void }) {
+export function h_get_child(
+  vm: any,
+  [objectId]: number[],
+  ctx: { store?: (v: number) => void; branch?: (c: boolean) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -38,7 +46,11 @@ export function h_get_child(vm: any, [objectId]: number[], ctx: { store?: (v: nu
   ctx.branch?.(childValue !== 0);
 }
 
-export function h_get_parent(vm: any, [objectId]: number[], ctx: { store?: (v: number) => void }) {
+export function h_get_parent(
+  vm: any,
+  [objectId]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -149,7 +161,9 @@ export function h_print_obj(vm: any, [objectId]: number[]) {
 
   // Get property table address
   const objectEntrySize = vm.header.version <= 3 ? 9 : 14;
-  const propertyTableAddr = vm.memory.readUInt16BE(objectAddress + objectEntrySize - 2);
+  const propertyTableAddr = vm.memory.readUInt16BE(
+    objectAddress + objectEntrySize - 2,
+  );
 
   // The short name is at the property table address
   const origPC = vm.pc;
@@ -158,7 +172,11 @@ export function h_print_obj(vm: any, [objectId]: number[]) {
   vm.pc = origPC;
 }
 
-export function h_test_attr(vm: any, [objectId, attrNum]: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_test_attr(
+  vm: any,
+  [objectId, attrNum]: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -224,7 +242,11 @@ export function h_clear_attr(vm: any, [objectId, attrNum]: number[]) {
   vm.memory.writeUInt8(newByte, objectAddress + attrByteIndex);
 }
 
-export function h_jin(vm: any, [obj1, obj2]: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_jin(
+  vm: any,
+  [obj1, obj2]: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;

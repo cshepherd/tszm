@@ -442,7 +442,7 @@ describe("Flow Control Handlers", () => {
       h_jump(vm, [65436]);
 
       // pc + (-100) - 2 = 0x1000 - 100 - 2 = 0x0F9A (4026)
-      expect(vm.pc).toBe(0x0F9A);
+      expect(vm.pc).toBe(0x0f9a);
     });
 
     it("should handle offset of 2 (stay in place)", () => {
@@ -460,7 +460,7 @@ describe("Flow Control Handlers", () => {
       // offset 0 - 2 = -2 (jump back 2)
       h_jump(vm, [0]);
 
-      expect(vm.pc).toBe(0x0FFE);
+      expect(vm.pc).toBe(0x0ffe);
     });
 
     it("should handle large positive offset", () => {
@@ -469,7 +469,7 @@ describe("Flow Control Handlers", () => {
       h_jump(vm, [1000]);
 
       // 0x1000 + 1000 - 2 = 0x13E6
-      expect(vm.pc).toBe(0x13E6);
+      expect(vm.pc).toBe(0x13e6);
     });
 
     it("should handle large negative offset", () => {
@@ -479,7 +479,7 @@ describe("Flow Control Handlers", () => {
       h_jump(vm, [64536]);
 
       // 0x2000 (8192) - 1000 - 2 = 7190 (0x1C16)
-      expect(vm.pc).toBe(0x1C16);
+      expect(vm.pc).toBe(0x1c16);
     });
 
     it("should handle signed conversion at boundary", () => {

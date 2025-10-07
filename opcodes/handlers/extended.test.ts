@@ -30,8 +30,8 @@ describe("Extended Handlers", () => {
       const storeFn = jest.fn();
 
       // 0xFFFF << 1 = 0x1FFFE, masked to 0xFFFE (65534)
-      h_log_shift({}, [0xFFFF, 1], { store: storeFn });
-      expect(storeFn).toHaveBeenCalledWith(0xFFFE);
+      h_log_shift({}, [0xffff, 1], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0xfffe);
     });
 
     it("should shift right (logical) for negative places", () => {
@@ -69,8 +69,8 @@ describe("Extended Handlers", () => {
       const storeFn = jest.fn();
 
       // 0xFFFF >>> 8 = 0xFF
-      h_log_shift({}, [0xFFFF, 65528], { store: storeFn }); // -8 as unsigned
-      expect(storeFn).toHaveBeenCalledWith(0xFF);
+      h_log_shift({}, [0xffff, 65528], { store: storeFn }); // -8 as unsigned
+      expect(storeFn).toHaveBeenCalledWith(0xff);
     });
 
     it("should work when store is not provided", () => {
@@ -125,7 +125,7 @@ describe("Extended Handlers", () => {
       // 0x8000 (-32768) >> 1 = 0xC000 (-16384)
       // -32768 >> 1 = -16384, which is 0xC000 as unsigned
       h_art_shift({}, [0x8000, 65535], { store: storeFn }); // -1 as unsigned
-      expect(storeFn).toHaveBeenCalledWith(0xC000);
+      expect(storeFn).toHaveBeenCalledWith(0xc000);
     });
 
     it("should return original value for zero places", () => {
@@ -139,24 +139,24 @@ describe("Extended Handlers", () => {
       const storeFn = jest.fn();
 
       // -1 (0xFFFF) << 1 = -2 (0xFFFE)
-      h_art_shift({}, [0xFFFF, 1], { store: storeFn });
-      expect(storeFn).toHaveBeenCalledWith(0xFFFE);
+      h_art_shift({}, [0xffff, 1], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0xfffe);
     });
 
     it("should handle negative number right shift preserving sign", () => {
       const storeFn = jest.fn();
 
       // -4 (0xFFFC) >> 1 = -2 (0xFFFE)
-      h_art_shift({}, [0xFFFC, 65535], { store: storeFn }); // -1 as unsigned
-      expect(storeFn).toHaveBeenCalledWith(0xFFFE);
+      h_art_shift({}, [0xfffc, 65535], { store: storeFn }); // -1 as unsigned
+      expect(storeFn).toHaveBeenCalledWith(0xfffe);
     });
 
     it("should mask result to 16 bits", () => {
       const storeFn = jest.fn();
 
       // 0x7FFF << 2 overflows, should mask to 16 bits
-      h_art_shift({}, [0x7FFF, 2], { store: storeFn });
-      expect(storeFn).toHaveBeenCalledWith(0xFFFC); // Result masked
+      h_art_shift({}, [0x7fff, 2], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0xfffc); // Result masked
     });
 
     it("should work when store is not provided", () => {
@@ -167,8 +167,8 @@ describe("Extended Handlers", () => {
       const storeFn = jest.fn();
 
       // -1 (0xFFFF) >> 8 = -1 (sign extends)
-      h_art_shift({}, [0xFFFF, 65528], { store: storeFn }); // -8 as unsigned
-      expect(storeFn).toHaveBeenCalledWith(0xFFFF);
+      h_art_shift({}, [0xffff, 65528], { store: storeFn }); // -8 as unsigned
+      expect(storeFn).toHaveBeenCalledWith(0xffff);
     });
   });
 
@@ -326,7 +326,7 @@ describe("Extended Handlers", () => {
       };
       const vm = { inputOutputDevice: mockDevice };
 
-      h_print_unicode(vm, [0x1F600]); // 😀 emoji
+      h_print_unicode(vm, [0x1f600]); // 😀 emoji
 
       expect(mockDevice.writeString).toHaveBeenCalled();
     });
@@ -350,21 +350,21 @@ describe("Extended Handlers", () => {
     it("should return 1 for character at end of BMP", () => {
       const storeFn = jest.fn();
 
-      h_check_unicode({}, [0xFFFF], { store: storeFn });
+      h_check_unicode({}, [0xffff], { store: storeFn });
       expect(storeFn).toHaveBeenCalledWith(1);
     });
 
     it("should return 1 for extended Latin characters", () => {
       const storeFn = jest.fn();
 
-      h_check_unicode({}, [0x00E9], { store: storeFn }); // é
+      h_check_unicode({}, [0x00e9], { store: storeFn }); // é
       expect(storeFn).toHaveBeenCalledWith(1);
     });
 
     it("should return 1 for CJK characters", () => {
       const storeFn = jest.fn();
 
-      h_check_unicode({}, [0x4E00], { store: storeFn }); // 一 (Chinese)
+      h_check_unicode({}, [0x4e00], { store: storeFn }); // 一 (Chinese)
       expect(storeFn).toHaveBeenCalledWith(1);
     });
 
@@ -400,11 +400,11 @@ describe("Extended Handlers", () => {
       const arithmeticStore = jest.fn();
 
       // -1 (0xFFFF) shifted right by 1
-      h_log_shift({}, [0xFFFF, 65535], { store: logicalStore }); // -1 as places
-      h_art_shift({}, [0xFFFF, 65535], { store: arithmeticStore });
+      h_log_shift({}, [0xffff, 65535], { store: logicalStore }); // -1 as places
+      h_art_shift({}, [0xffff, 65535], { store: arithmeticStore });
 
-      expect(logicalStore).toHaveBeenCalledWith(0x7FFF); // Logical: zero fill
-      expect(arithmeticStore).toHaveBeenCalledWith(0xFFFF); // Arithmetic: sign extend
+      expect(logicalStore).toHaveBeenCalledWith(0x7fff); // Logical: zero fill
+      expect(arithmeticStore).toHaveBeenCalledWith(0xffff); // Arithmetic: sign extend
     });
 
     it("should be same for positive numbers shifted right", () => {
@@ -412,11 +412,11 @@ describe("Extended Handlers", () => {
       const arithmeticStore = jest.fn();
 
       // 0x7FFF shifted right by 1
-      h_log_shift({}, [0x7FFF, 65535], { store: logicalStore }); // -1 as places
-      h_art_shift({}, [0x7FFF, 65535], { store: arithmeticStore });
+      h_log_shift({}, [0x7fff, 65535], { store: logicalStore }); // -1 as places
+      h_art_shift({}, [0x7fff, 65535], { store: arithmeticStore });
 
-      expect(logicalStore).toHaveBeenCalledWith(0x3FFF);
-      expect(arithmeticStore).toHaveBeenCalledWith(0x3FFF);
+      expect(logicalStore).toHaveBeenCalledWith(0x3fff);
+      expect(arithmeticStore).toHaveBeenCalledWith(0x3fff);
     });
 
     it("should be same for left shifts", () => {

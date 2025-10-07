@@ -1,17 +1,82 @@
 import { InstrDescriptor, d0, d1, d2, dv } from "./types";
 import { h_add, h_sub, h_mul, h_div, h_mod } from "./handlers/arithmetic";
 import { h_and, h_or, h_not, h_test } from "./handlers/logic";
-import { h_rtrue, h_rfalse, h_ret, h_ret_popped, h_quit, h_jz, h_jl, h_jg, h_je, h_jump } from "./handlers/flow";
-import { h_print, h_print_ret, h_new_line, h_print_num, h_print_addr, h_print_paddr } from "./handlers/text";
+import {
+  h_rtrue,
+  h_rfalse,
+  h_ret,
+  h_ret_popped,
+  h_quit,
+  h_jz,
+  h_jl,
+  h_jg,
+  h_je,
+  h_jump,
+} from "./handlers/flow";
+import {
+  h_print,
+  h_print_ret,
+  h_new_line,
+  h_print_num,
+  h_print_addr,
+  h_print_paddr,
+} from "./handlers/text";
 import { h_pop, h_push, h_pull, h_random } from "./handlers/stack";
 import { h_nop, h_show_status, h_verify, h_piracy } from "./handlers/misc";
-import { h_get_sibling, h_get_child, h_get_parent, h_remove_obj, h_print_obj, h_test_attr, h_set_attr, h_clear_attr, h_jin, h_insert_obj } from "./handlers/objects";
-import { h_get_prop_len, h_get_prop, h_get_prop_addr, h_put_prop } from "./handlers/properties";
-import { h_inc, h_dec, h_load, h_store, h_inc_chk, h_dec_chk } from "./handlers/variables";
+import {
+  h_get_sibling,
+  h_get_child,
+  h_get_parent,
+  h_remove_obj,
+  h_print_obj,
+  h_test_attr,
+  h_set_attr,
+  h_clear_attr,
+  h_jin,
+  h_insert_obj,
+} from "./handlers/objects";
+import {
+  h_get_prop_len,
+  h_get_prop,
+  h_get_prop_addr,
+  h_put_prop,
+} from "./handlers/properties";
+import {
+  h_inc,
+  h_dec,
+  h_load,
+  h_store,
+  h_inc_chk,
+  h_dec_chk,
+} from "./handlers/variables";
 import { h_call, h_call_1s, h_call_2s } from "./handlers/call";
 import { h_loadw, h_loadb, h_storew, h_storeb } from "./handlers/memory";
-import { h_print_char, h_sread, h_print_table, h_split_window, h_set_window, h_erase_window, h_erase_line, h_set_cursor, h_get_cursor, h_set_text_style, h_buffer_mode, h_output_stream, h_input_stream, h_sound_effect, h_read_char } from "./handlers/io";
-import { h_log_shift, h_art_shift, h_set_font, h_save_undo, h_restore_undo, h_print_unicode, h_check_unicode } from "./handlers/extended";
+import {
+  h_print_char,
+  h_sread,
+  h_print_table,
+  h_split_window,
+  h_set_window,
+  h_erase_window,
+  h_erase_line,
+  h_set_cursor,
+  h_get_cursor,
+  h_set_text_style,
+  h_buffer_mode,
+  h_output_stream,
+  h_input_stream,
+  h_sound_effect,
+  h_read_char,
+} from "./handlers/io";
+import {
+  h_log_shift,
+  h_art_shift,
+  h_set_font,
+  h_save_undo,
+  h_restore_undo,
+  h_print_unicode,
+  h_check_unicode,
+} from "./handlers/extended";
 
 // Per-family opcode tables. Undefined entries = illegal or unimplemented.
 export const TABLE_0OP: Array<InstrDescriptor | undefined> = [];
@@ -390,148 +455,152 @@ TABLE_2OP[0x19] = d2(0x19, {
 // --- VAR opcodes ---
 // NOTE: VAR opcodes have variable-length operand lists (0-4 operands typically)
 // The operandKinds field is omitted because operand types are encoded in a separate byte
+// VAR opcodes use the full byte value 0xE0-0xFF as the index
 
-TABLE_VAR[0x00] = dv(0x00, {
+TABLE_VAR[0xe0] = dv(0xe0, {
   name: "call",
   doesStore: true,
   handler: (vm, ops, ctx) => h_call(vm, ops, ctx),
 });
 
-TABLE_VAR[0x01] = dv(0x01, {
+TABLE_VAR[0xe1] = dv(0xe1, {
   name: "storew",
   handler: (vm, ops) => h_storew(vm, ops),
 });
 
-TABLE_VAR[0x02] = dv(0x02, {
+TABLE_VAR[0xe2] = dv(0xe2, {
   name: "storeb",
   handler: (vm, ops) => h_storeb(vm, ops),
 });
 
-TABLE_VAR[0x03] = dv(0x03, {
+TABLE_VAR[0xe3] = dv(0xe3, {
   name: "put_prop",
   handler: (vm, ops) => h_put_prop(vm, ops),
 });
 
-TABLE_VAR[0x04] = dv(0x04, {
+TABLE_VAR[0xe4] = dv(0xe4, {
   name: "sread",
   handler: (vm, ops) => h_sread(vm, ops),
 });
 
-TABLE_VAR[0x05] = dv(0x05, {
+TABLE_VAR[0xe5] = dv(0xe5, {
   name: "print_char",
   handler: (vm, ops) => h_print_char(vm, ops),
 });
 
-TABLE_VAR[0x06] = dv(0x06, {
+TABLE_VAR[0xe6] = dv(0xe6, {
   name: "print_num",
   handler: (vm, ops) => h_print_num(vm, ops),
 });
 
-TABLE_VAR[0x07] = dv(0x07, {
+TABLE_VAR[0xe7] = dv(0xe7, {
   name: "random",
   doesStore: true,
   handler: (vm, ops, ctx) => h_random(vm, ops, ctx),
 });
 
-TABLE_VAR[0x08] = dv(0x08, {
+TABLE_VAR[0xe8] = dv(0xe8, {
   name: "push",
   handler: (vm, ops) => h_push(vm, ops),
 });
 
-TABLE_VAR[0x09] = dv(0x09, {
+TABLE_VAR[0xe9] = dv(0xe9, {
   name: "pull",
   minVersion: 5,
   handler: (vm, ops) => h_pull(vm, ops),
 });
 
-TABLE_VAR[0x0a] = dv(0x0a, {
+TABLE_VAR[0xea] = dv(0xea, {
   name: "split_window",
   minVersion: 3,
   handler: (vm, ops) => h_split_window(vm, ops),
 });
 
-TABLE_VAR[0x0b] = dv(0x0b, {
+TABLE_VAR[0xeb] = dv(0xeb, {
   name: "set_window",
   minVersion: 3,
   handler: (vm, ops) => h_set_window(vm, ops),
 });
 
-TABLE_VAR[0x0c] = dv(0x0c, {
-  name: "not",
-  minVersion: 5,
-  doesStore: true,
-  handler: (vm, ops) => h_not(vm, ops),
-});
-
-TABLE_VAR[0x0d] = dv(0x0d, {
-  name: "call_vs",
+TABLE_VAR[0xec] = dv(0xec, {
+  name: "call_vs2",
   minVersion: 4,
   doesStore: true,
   handler: (vm, ops, ctx) => h_call(vm, ops, ctx),
 });
-// TABLE_VAR[0x0e] = call_vs2 (v4+) - TODO
 
-TABLE_VAR[0x0f] = dv(0x0f, {
+TABLE_VAR[0xed] = dv(0xed, {
   name: "erase_window",
   minVersion: 4,
   handler: (vm, ops) => h_erase_window(vm, ops),
 });
 
-TABLE_VAR[0x10] = dv(0x10, {
+TABLE_VAR[0xee] = dv(0xee, {
   name: "erase_line",
   minVersion: 4,
   handler: (vm, ops) => h_erase_line(vm, ops),
 });
 
-TABLE_VAR[0x11] = dv(0x11, {
+TABLE_VAR[0xef] = dv(0xef, {
   name: "set_cursor",
   minVersion: 4,
   handler: (vm, ops) => h_set_cursor(vm, ops),
 });
 
-TABLE_VAR[0x12] = dv(0x12, {
+TABLE_VAR[0xf0] = dv(0xf0, {
   name: "get_cursor",
   minVersion: 4,
   handler: (vm, ops) => h_get_cursor(vm, ops),
 });
 
-TABLE_VAR[0x13] = dv(0x13, {
+TABLE_VAR[0xf1] = dv(0xf1, {
   name: "set_text_style",
   minVersion: 4,
   handler: (vm, ops) => h_set_text_style(vm, ops),
 });
 
-TABLE_VAR[0x14] = dv(0x14, {
+TABLE_VAR[0xf2] = dv(0xf2, {
   name: "buffer_mode",
   minVersion: 4,
   handler: (vm, ops) => h_buffer_mode(vm, ops),
 });
 
-TABLE_VAR[0x15] = dv(0x15, {
+TABLE_VAR[0xf3] = dv(0xf3, {
   name: "output_stream",
   minVersion: 3,
   handler: (vm, ops) => h_output_stream(vm, ops),
 });
 
-TABLE_VAR[0x16] = dv(0x16, {
+TABLE_VAR[0xf4] = dv(0xf4, {
   name: "input_stream",
   minVersion: 3,
   handler: (vm, ops) => h_input_stream(vm, ops),
 });
 
-TABLE_VAR[0x17] = dv(0x17, {
+TABLE_VAR[0xf5] = dv(0xf5, {
   name: "sound_effect",
   minVersion: 3,
   handler: (vm, ops) => h_sound_effect(vm, ops),
 });
 
-TABLE_VAR[0x18] = dv(0x18, {
+TABLE_VAR[0xf6] = dv(0xf6, {
   name: "read_char",
   minVersion: 4,
   doesStore: true,
   handler: async (vm, ops, ctx) => await h_read_char(vm, ops, ctx),
 });
-// TABLE_VAR[0x19] = scan_table (v4+) - TODO
+
+// TABLE_VAR[0xf7] = scan_table (v4+) - TODO: implement h_scan_table
+
+TABLE_VAR[0xf8] = dv(0xf8, {
+  name: "not",
+  minVersion: 5,
+  doesStore: true,
+  handler: (vm, ops) => h_not(vm, ops),
+});
+// TABLE_VAR[0xf9] = call_vn (v5+) - TODO
+// TABLE_VAR[0xfa] = call_vn2 (v5+) - TODO
+// TABLE_VAR[0xfb] = tokenise (v5+) - TODO
 // TABLE_VAR[0x1a] = not (v1-4) - handled by 0x0c above
 // TABLE_VAR[0x1b] = call_vn (v5+) - TODO
 // TABLE_VAR[0x1c] = call_vn2 (v5+) - TODO

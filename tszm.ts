@@ -47,7 +47,19 @@ async function main() {
     }
 
     for (;;) {
-      await zm.executeInstruction();
+      try {
+        await zm.executeInstruction();
+      } catch (instrErr) {
+        // Re-throw QUIT without logging
+        if (instrErr instanceof Error && instrErr.message === "QUIT") {
+          throw instrErr;
+        }
+        console.error("Error executing instruction:", instrErr);
+        if (instrErr instanceof Error) {
+          console.error("Stack trace:", instrErr.stack);
+        }
+        throw instrErr;
+      }
     }
   } catch (err) {
     if (err instanceof Error && err.message === "QUIT") {
@@ -55,8 +67,12 @@ async function main() {
       consoleDevice.close();
       process.exit(0);
     }
-    console.error("Error:", err);
+    console.error("Fatal error:", err);
+    if (err instanceof Error) {
+      console.error("Stack trace:", err.stack);
+    }
     consoleDevice.close();
+    process.exit(1);
   }
 }
 

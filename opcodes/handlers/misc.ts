@@ -9,13 +9,21 @@ export function h_show_status(vm: any) {
   // Currently no-op
 }
 
-export function h_verify(vm: any, _ops: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_verify(
+  vm: any,
+  _ops: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   // Verify game file checksum
   // For now, always succeed
   ctx.branch?.(true);
 }
 
-export function h_piracy(vm: any, _ops: number[], ctx: { branch?: (c: boolean) => void }) {
+export function h_piracy(
+  vm: any,
+  _ops: number[],
+  ctx: { branch?: (c: boolean) => void },
+) {
   // Piracy check (v5+)
   // Always return TRUE (game is genuine)
   ctx.branch?.(true);

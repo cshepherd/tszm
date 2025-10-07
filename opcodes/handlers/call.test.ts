@@ -18,7 +18,12 @@ describe("Call Handlers", () => {
   };
 
   // Helper to set up a routine in memory
-  const setupRoutine = (vm: any, routineAddress: number, localVarCount: number, initialValues?: number[]) => {
+  const setupRoutine = (
+    vm: any,
+    routineAddress: number,
+    localVarCount: number,
+    initialValues?: number[],
+  ) => {
     vm.memory.writeUInt8(localVarCount, routineAddress);
 
     if (vm.header.version <= 4 && initialValues) {
@@ -76,7 +81,9 @@ describe("Call Handlers", () => {
 
         h_call(vm, [0], { store: storeFn });
 
-        expect(consoleSpy).toHaveBeenCalledWith("@call routine address 0: returning FALSE");
+        expect(consoleSpy).toHaveBeenCalledWith(
+          "@call routine address 0: returning FALSE",
+        );
         expect(storeFn).toHaveBeenCalledWith(0);
 
         consoleSpy.mockRestore();
@@ -357,7 +364,7 @@ describe("Call Handlers", () => {
         h_call(vm, [0x80, 10, 20], {}); // 2 arguments
 
         expect(consoleSpy).toHaveBeenCalledWith(
-          "@call Calling routine at 200 with 2 args"
+          "@call Calling routine at 200 with 2 args",
         );
 
         consoleSpy.mockRestore();
@@ -499,9 +506,11 @@ describe("Call Handlers", () => {
 
         h_call_1s(vm, [0x80], {});
 
-        expect(consoleSpy).toHaveBeenCalledWith("@call_1s Calling routine at 200");
         expect(consoleSpy).toHaveBeenCalledWith(
-          expect.stringContaining("@call_1s Pushed: returnPC=400")
+          "@call_1s Calling routine at 200",
+        );
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining("@call_1s Pushed: returnPC=400"),
         );
 
         consoleSpy.mockRestore();
@@ -565,11 +574,15 @@ describe("Call Handlers", () => {
 
       // Check call stack saved everything
       expect(vm.callStack).toEqual([
-        0x500,  // PC
-        0x20,   // Store target
-        1, 2, 3, 4, 5, // Previous locals
-        5,      // Local count
-        1       // Frame marker
+        0x500, // PC
+        0x20, // Store target
+        1,
+        2,
+        3,
+        4,
+        5, // Previous locals
+        5, // Local count
+        1, // Frame marker
       ]);
 
       // Check new locals initialized
@@ -591,7 +604,7 @@ describe("Call Handlers", () => {
 
       // Second call (nested)
       setupRoutine(vm, 0x300, 1);
-      h_call(vm, [0xC0, 99], {}); // 0xC0 * 4 = 0x300
+      h_call(vm, [0xc0, 99], {}); // 0xC0 * 4 = 0x300
 
       // Call stack should have both frames
       expect(vm.callStack.length).toBeGreaterThan(firstCallStack.length);

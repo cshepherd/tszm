@@ -170,10 +170,10 @@ describe("Stack Handlers", () => {
 
       h_pull(vm, [3]);
       expect(consoleSpy).toHaveBeenCalledWith(
-        "@pull: stack length=2, target var=3"
+        "@pull: stack length=2, target var=3",
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        "@pull: pulled value=200, storing to var 3"
+        "@pull: pulled value=200, storing to var 3",
       );
 
       consoleSpy.mockRestore();

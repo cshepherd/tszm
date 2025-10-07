@@ -191,7 +191,9 @@ describe("Text Handlers", () => {
     });
 
     it("should use process.stdout when no inputOutputDevice", () => {
-      const stdoutSpy = jest.spyOn(process.stdout, "write").mockImplementation();
+      const stdoutSpy = jest
+        .spyOn(process.stdout, "write")
+        .mockImplementation();
       const vm = {};
 
       h_print_num(vm, [123]);

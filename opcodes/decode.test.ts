@@ -406,12 +406,16 @@ describe("decodeNext", () => {
       decodeNext(vm);
 
       expect(vm.readOperandTypesLog).toContain(0x55);
-      expect(vm.decodeOperandLog.filter(t => t === "small").length).toBeGreaterThan(0);
+      expect(
+        vm.decodeOperandLog.filter((t) => t === "small").length,
+      ).toBeGreaterThan(0);
     });
 
     it("should decode mixed operand types", () => {
       // Type byte 0x03 = 0b00000011 = large, large, large, omit
-      const vm = new MockVM([0xe0, 0x03, 0x00, 0x10, 0x00, 0x20, 0x00, 0x30, 0xff]);
+      const vm = new MockVM([
+        0xe0, 0x03, 0x00, 0x10, 0x00, 0x20, 0x00, 0x30, 0xff,
+      ]);
       decodeNext(vm);
 
       expect(vm.readOperandTypesLog).toContain(0x03);
@@ -422,7 +426,7 @@ describe("decodeNext", () => {
     it("should correctly identify 0OP instructions (0xBx)", () => {
       const testCases = [0xb0, 0xb1, 0xb2, 0xb3, 0xba, 0xbb];
 
-      testCases.forEach(opcode => {
+      testCases.forEach((opcode) => {
         const vm = new MockVM([opcode]);
         const result = decodeNext(vm);
         if (result.desc) {
@@ -434,7 +438,7 @@ describe("decodeNext", () => {
     it("should correctly identify 1OP instructions (0x8x-0xAx)", () => {
       const testCases = [0x80, 0x90, 0xa0]; // large, small, var forms
 
-      testCases.forEach(opcode => {
+      testCases.forEach((opcode) => {
         const vm = new MockVM([opcode, 0x10, 0xc0]);
         const result = decodeNext(vm);
         expect(result.desc.kind).toBe("1OP");

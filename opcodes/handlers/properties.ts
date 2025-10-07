@@ -1,6 +1,10 @@
 // Property manipulation handlers
 
-export function h_get_prop_len(vm: any, [propDataAddr]: number[], ctx: { store?: (v: number) => void }) {
+export function h_get_prop_len(
+  vm: any,
+  [propDataAddr]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -29,7 +33,11 @@ export function h_get_prop_len(vm: any, [propDataAddr]: number[], ctx: { store?:
   ctx.store?.(propLen);
 }
 
-export function h_get_prop(vm: any, [objectId, propNum]: number[], ctx: { store?: (v: number) => void }) {
+export function h_get_prop(
+  vm: any,
+  [objectId, propNum]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -37,7 +45,9 @@ export function h_get_prop(vm: any, [objectId, propNum]: number[], ctx: { store?
 
   const objectAddress = vm.getObjectAddress(objectId);
   const objectEntrySize = vm.header.version <= 3 ? 9 : 14;
-  const propertyTableAddr = vm.memory.readUInt16BE(objectAddress + objectEntrySize - 2);
+  const propertyTableAddr = vm.memory.readUInt16BE(
+    objectAddress + objectEntrySize - 2,
+  );
 
   const nameLength = vm.memory.readUInt8(propertyTableAddr);
   let propAddr = propertyTableAddr + 1 + nameLength * 2;
@@ -93,7 +103,11 @@ export function h_get_prop(vm: any, [objectId, propNum]: number[], ctx: { store?
   ctx.store?.(propValue);
 }
 
-export function h_get_prop_addr(vm: any, [objectId, propNum]: number[], ctx: { store?: (v: number) => void }) {
+export function h_get_prop_addr(
+  vm: any,
+  [objectId, propNum]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");
     return;
@@ -101,7 +115,9 @@ export function h_get_prop_addr(vm: any, [objectId, propNum]: number[], ctx: { s
 
   const objectAddress = vm.getObjectAddress(objectId);
   const objectEntrySize = vm.header.version <= 3 ? 9 : 14;
-  const propertyTableAddr = vm.memory.readUInt16BE(objectAddress + objectEntrySize - 2);
+  const propertyTableAddr = vm.memory.readUInt16BE(
+    objectAddress + objectEntrySize - 2,
+  );
 
   const nameLength = vm.memory.readUInt8(propertyTableAddr);
   let propAddr = propertyTableAddr + 1 + nameLength * 2;
@@ -152,7 +168,9 @@ export function h_put_prop(vm: any, [objectId, propNum, value]: number[]) {
 
   const objectAddress = vm.getObjectAddress(objectId);
   const objectEntrySize = vm.header.version <= 3 ? 9 : 14;
-  const propertyTableAddr = vm.memory.readUInt16BE(objectAddress + objectEntrySize - 2);
+  const propertyTableAddr = vm.memory.readUInt16BE(
+    objectAddress + objectEntrySize - 2,
+  );
 
   const nameLength = vm.memory.readUInt8(propertyTableAddr);
   let propAddr = propertyTableAddr + 1 + nameLength * 2;

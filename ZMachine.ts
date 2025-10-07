@@ -355,7 +355,8 @@ class ZMachine {
       const target = di.storeTarget;
       ctx.store = (v: number) => this._storeVariable(target, v);
       // Also expose legacy bridge for example handlers
-      (this as any)._storeResult = (v: number) => this._storeVariable(target, v);
+      (this as any)._storeResult = (v: number) =>
+        this._storeVariable(target, v);
       (this as any)._currentStoreTarget = target;
     } else {
       (this as any)._storeResult = undefined;
@@ -363,7 +364,8 @@ class ZMachine {
     }
     if (di.branchInfo !== undefined) {
       const { offset, branchOnTrue } = di.branchInfo;
-      ctx.branch = (cond: boolean) => this._applyBranch(offset, branchOnTrue, cond);
+      ctx.branch = (cond: boolean) =>
+        this._applyBranch(offset, branchOnTrue, cond);
     }
 
     // Execute
@@ -381,7 +383,11 @@ class ZMachine {
     this.setVariableValue(varNum, value);
   }
 
-  _applyBranch(offset: number, branchOnTrue: boolean, condition: boolean): void {
+  _applyBranch(
+    offset: number,
+    branchOnTrue: boolean,
+    condition: boolean,
+  ): void {
     const shouldBranch = condition === branchOnTrue;
     if (shouldBranch) {
       if (offset === 0 || offset === 1) {

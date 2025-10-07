@@ -267,7 +267,7 @@ export async function h_sread(vm: any, operands: number[]) {
 
   if (vm.trace) {
     console.log(
-      `@sread: textBufferAddr=0x${textBufferAddr.toString(16)}, parseBufferAddr=0x${parseBufferAddr.toString(16)}, input="${input}"`
+      `@sread: textBufferAddr=0x${textBufferAddr.toString(16)}, parseBufferAddr=0x${parseBufferAddr.toString(16)}, input="${input}"`,
     );
   }
 
@@ -415,7 +415,9 @@ export function h_output_stream(vm: any, [number, table]: number[]) {
   // Select output stream (v3+)
   // Currently no-op
   if (vm.trace) {
-    console.log(`@output_stream ${number}${table !== undefined ? `,${table}` : ''} (no-op)`);
+    console.log(
+      `@output_stream ${number}${table !== undefined ? `,${table}` : ""} (no-op)`,
+    );
   }
 }
 
@@ -431,11 +433,15 @@ export function h_sound_effect(vm: any, operands: number[]) {
   // Sound effect (v3+)
   // Currently no-op
   if (vm.trace) {
-    console.log(`@sound_effect ${operands.join(',')} (no-op)`);
+    console.log(`@sound_effect ${operands.join(",")} (no-op)`);
   }
 }
 
-export async function h_read_char(vm: any, [one, time, routine]: number[], ctx: { store?: (v: number) => void }) {
+export async function h_read_char(
+  vm: any,
+  [one, time, routine]: number[],
+  ctx: { store?: (v: number) => void },
+) {
   // Read a single character (v4+)
   // one = 1 means show cursor, time = timeout, routine = timeout routine
   if (!vm.inputOutputDevice) {
