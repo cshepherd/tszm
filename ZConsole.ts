@@ -1,5 +1,6 @@
 import { createInterface, Interface } from "node:readline/promises";
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
+import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "./ZMachine";
 import * as crypto from "crypto";
 import * as http from "http";
@@ -17,6 +18,7 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnEnabled: boolean = false;
   private zmcdnServer: string | undefined = "";
   private currentPrompt: string = "";
+  private zmcdnSessionId: string = "";
 
   constructor(zmcdnServer: string | undefined) {
     this.zmcdnServer = zmcdnServer;
@@ -37,53 +39,87 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async processZMCDNText(): Promise<void> {
     if (this.ZMCDNText && this.zmcdnEnabled) {
-      const text = this.ZMCDNText;
-      this.ZMCDNText = "";
-
-      // Compute SHA512 hash
-      const hash = crypto.createHash("sha512").update(text).digest("hex");
+      if (!this.zmcdnSessionId) {
+        this.zmcdnSessionId = crypto.randomUUID();
+      }
+      const zmcdnInput = new ZMCDNInput();
+      zmcdnInput.zmcdnSessionID = this.zmcdnSessionId;
+      zmcdnInput.lastZMachineOutput = this.ZMCDNText;
+      this.ZMCDNText = '';
 
       // Get gameId from header
       if (!this.zm) {
         console.error("ZMachine not initialized");
         return;
       }
+      zmcdnInput.lastZMachineInput = this.zm.getLastRead();
 
       const header = this.zm.getHeader();
       if (!header) {
         console.error("Unable to read game header");
         return;
       }
-      const gameId = `${header.release}.${header.serial}`;
 
-      // Make HTTP GET request
-      const url = `${this.zmcdnServer}/print/${gameId}/${hash}/sixel`;
+      zmcdnInput.gameIdentifier = `${header.release}.${header.serial}`;
+
+      const playerParent = this.zm.findPlayerParent();
+      if(playerParent) {
+        zmcdnInput.playerLocation = playerParent.name;
+      }
+
+      zmcdnInput.illustrationFormat = 'sixel';
+
+      const url = `${this.zmcdnServer}/illustrateMove`;
 
       try {
-        const data = await this.fetchURL(url);
+        const data = await this.postJSON(url, zmcdnInput);
         console.error(`Received ${data.length} bytes of sixel data`);
         // Dump sixel-formatted graphics to terminal
         process.stdout.write(data);
         process.stdout.write("\n");
       } catch (error) {
-        // On failure, POST to generate endpoint
-        try {
-          await this.postGenerate(gameId, text);
-          // If generation succeeds, re-request the image
-          const data = await this.fetchURL(url);
-          console.error(
-            `Received ${data.length} bytes of sixel data after generation`,
-          );
-          process.stdout.write(data);
-          process.stdout.write("\n");
-        } catch (postError) {
-          console.error(
-            `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        console.error(
+          `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
     return Promise.resolve();
+  }
+
+  private postJSON(url: string, data: any): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const postData = JSON.stringify(data);
+      const urlObj = new URL(url);
+      const options = {
+        hostname: urlObj.hostname,
+        port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
+        path: urlObj.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      };
+
+      const req = http.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          res.resume();
+          return;
+        }
+
+        let responseData = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          responseData += chunk;
+        });
+        res.on("end", () => resolve(responseData));
+      });
+
+      req.on("error", reject);
+      req.write(postData);
+      req.end();
+    });
   }
 
   private fetchURL(url: string): Promise<string> {

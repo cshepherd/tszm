@@ -273,6 +273,7 @@ export async function h_sread(vm: any, operands: number[]) {
 
   const maxLen = vm.memory.readUInt8(textBufferAddr);
   const text = input.toLowerCase().slice(0, maxLen);
+  vm.setLastRead(text);
 
   if (vm.header.version <= 4) {
     // v1-4: Write text starting at byte 1, null-terminate

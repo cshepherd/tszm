@@ -31,6 +31,8 @@ class ZMachine {
   private currentContext: number = 0;
   private localVariables: number[] = []; // Current routine's local variables
   private trace: boolean = false; // Enable debug logging
+  private playerObjectNumber: number = 0; // Player object number
+  private lastRead: string = ''; // Last command entered (to help find player object)
 
   constructor(
     private filePath: string,
@@ -105,6 +107,18 @@ class ZMachine {
       checksumValid: false,
       alphabetIdentifier: buffer.readUInt16BE(0x34), // 0x34 for v5+, may not exist in v3
     };
+  }
+
+  setPlayerObjectNumber(objectNumber: number): any {
+    this.playerObjectNumber = objectNumber;
+  }
+
+  setLastRead(lastRead: string): any {
+    this.lastRead = lastRead;
+  }
+
+  getLastRead(): string {
+    return this.lastRead;
   }
 
   getGlobalVariableValue(variableNumber: number): any {
@@ -239,6 +253,55 @@ class ZMachine {
       propertyDefaultSize +
       (objectId - 1) * objectEntrySize
     );
+  }
+
+  private getObjectName(objectId: number): string {
+    if (!this.memory || !this.header) return "";
+
+    const objectAddress = this.getObjectAddress(objectId);
+    const objectEntrySize = this.header.version <= 3 ? 9 : 14;
+    const propertyTableAddr = this.memory.readUInt16BE(
+      objectAddress + objectEntrySize - 2,
+    );
+
+    // The short name is at the property table address
+    const origPC = this.pc;
+    this.pc = propertyTableAddr + 1;
+    const name = this.decodeZSCII(true);
+    this.pc = origPC;
+
+    return name.toLowerCase().trim();
+  }
+
+  findPlayerParent(): {
+    objectNumber: number;
+    name: string;
+  } | null {
+    if (!this.header || !this.memory || this.playerObjectNumber === 0) {
+      return null;
+    }
+
+    // Get the parent object ID using the h_get_parent handler
+    const { h_get_parent } = require("./opcodes/handlers/objects");
+    let parentId: number = 0;
+    const ctx = {
+      store: (v: number) => {
+        parentId = v;
+      },
+    };
+    h_get_parent(this, [this.playerObjectNumber], ctx);
+
+    if (parentId === 0) {
+      return null;
+    }
+
+    // Get parent object name
+    const name = this.getObjectName(parentId);
+
+    return {
+      objectNumber: parentId,
+      name,
+    };
   }
 
   print(abbreviations: boolean = true) {
