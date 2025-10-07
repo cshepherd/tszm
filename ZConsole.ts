@@ -65,6 +65,8 @@ export class ZConsole implements ZMInputOutputDevice {
       const playerParent = this.zm.findPlayerParent();
       if(playerParent) {
         zmcdnInput.playerLocation = playerParent.name;
+      } else {
+        zmcdnInput.playerLocation = '';
       }
 
       zmcdnInput.illustrationFormat = 'sixel';
