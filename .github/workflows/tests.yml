@@ -69,13 +69,13 @@ jobs:
           NODE
 
       - name: Upload Pages artifact (coverage site)
-        if: ${{ !env.ACT }}
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: coverage/lcov-report
 
       - name: Deploy coverage to GitHub Pages
-        if: ${{ !env.ACT }}
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
         uses: actions/deploy-pages@v4
 
       - name: Add coverage link to summary
