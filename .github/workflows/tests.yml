@@ -85,7 +85,7 @@ jobs:
         if: ${{ !env.ACT && matrix.node-version == '20.x' }}
         uses: actions/upload-pages-artifact@v3
         with:
-          path: coverage/lcov-report
+          path: site
 
       - name: Deploy coverage to GitHub Pages
         if: ${{ !env.ACT && matrix.node-version == '20.x' }}
