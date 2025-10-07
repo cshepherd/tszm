@@ -274,7 +274,7 @@ export function h_insert_obj(vm: any, [objectId, destId]: number[]) {
   const destAddress = vm.getObjectAddress(destId);
 
   if(!vm.playerObjectNumber) {
-    if(( !vm.lastRead.startsWith('dr') ) && ( !vm.lastRead.startsWith('ta') ))
+    if(vm.lastRead && ( !vm.lastRead.startsWith('dr') ) && ( !vm.lastRead.startsWith('ta') ))
       vm.setPlayerObjectNumber(objectId);
   }
 

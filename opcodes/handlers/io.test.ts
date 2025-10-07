@@ -173,6 +173,7 @@ describe("I/O Handlers", () => {
         inputOutputDevice: mockDevice,
         trace: false,
         decodeZSCII: jest.fn(),
+        setLastRead: jest.fn(),
       };
 
       // Set up minimal dictionary
@@ -207,6 +208,7 @@ describe("I/O Handlers", () => {
         inputOutputDevice: mockDevice,
         trace: false,
         decodeZSCII: jest.fn(),
+        setLastRead: jest.fn(),
       };
 
       // Set up minimal dictionary
@@ -255,6 +257,7 @@ describe("I/O Handlers", () => {
         inputOutputDevice: mockDevice,
         trace: false,
         decodeZSCII: jest.fn(),
+        setLastRead: jest.fn(),
       };
 
       // Set up minimal dictionary
@@ -285,6 +288,7 @@ describe("I/O Handlers", () => {
         inputOutputDevice: mockDevice,
         trace: false,
         decodeZSCII: jest.fn(),
+        setLastRead: jest.fn(),
       };
 
       // Set up minimal dictionary
