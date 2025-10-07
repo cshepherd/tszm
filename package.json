@@ -9,8 +9,11 @@
     "build": "node build.mjs",
     "build:dev": "node build.mjs && chmod +x dist/tszm.js",
     "test": "jest",
+    "test:ci": "jest --ci --coverage",
+    "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
