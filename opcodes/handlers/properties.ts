@@ -160,6 +160,98 @@ export function h_get_prop_addr(
   ctx.store?.(result);
 }
 
+export function h_get_next_prop(
+  vm: any,
+  [objectId, propNum]: number[],
+  ctx: { store?: (v: number) => void },
+) {
+  if (!vm.memory || !vm.header) {
+    console.error("Memory or header not loaded");
+    return;
+  }
+
+  const objectAddress = vm.getObjectAddress(objectId);
+  const objectEntrySize = vm.header.version <= 3 ? 9 : 14;
+  const propertyTableAddr = vm.memory.readUInt16BE(
+    objectAddress + objectEntrySize - 2,
+  );
+
+  const nameLength = vm.memory.readUInt8(propertyTableAddr);
+  let propAddr = propertyTableAddr + 1 + nameLength * 2;
+
+  // If propNum is 0, return the first property
+  if (propNum === 0) {
+    const sizeByte = vm.memory.readUInt8(propAddr);
+    if (sizeByte === 0) {
+      ctx.store?.(0);
+      return;
+    }
+
+    let firstNum: number;
+    if (vm.header.version <= 3) {
+      firstNum = sizeByte & 0x1f;
+    } else {
+      firstNum = sizeByte & 0x3f;
+    }
+
+    ctx.store?.(firstNum);
+    return;
+  }
+
+  // Find the specified property and return the next one
+  while (true) {
+    const sizeByte = vm.memory.readUInt8(propAddr);
+    if (sizeByte === 0) {
+      // Property not found
+      ctx.store?.(0);
+      return;
+    }
+
+    let currentNum: number;
+    let dataSize: number;
+
+    if (vm.header.version <= 3) {
+      dataSize = (sizeByte >> 5) + 1;
+      currentNum = sizeByte & 0x1f;
+      propAddr += 1;
+    } else {
+      currentNum = sizeByte & 0x3f;
+      if (sizeByte & 0x80) {
+        const secondByte = vm.memory.readUInt8(propAddr + 1);
+        dataSize = secondByte & 0x3f;
+        if (dataSize === 0) dataSize = 64;
+        propAddr += 2;
+      } else {
+        dataSize = sizeByte & 0x40 ? 2 : 1;
+        propAddr += 1;
+      }
+    }
+
+    if (currentNum === propNum) {
+      // Found the property, move to next
+      propAddr += dataSize;
+      const nextSizeByte = vm.memory.readUInt8(propAddr);
+
+      if (nextSizeByte === 0) {
+        ctx.store?.(0);
+        return;
+      }
+
+      let nextNum: number;
+      if (vm.header.version <= 3) {
+        nextNum = nextSizeByte & 0x1f;
+      } else {
+        nextNum = nextSizeByte & 0x3f;
+      }
+
+      ctx.store?.(nextNum);
+      return;
+    }
+
+    propAddr += dataSize;
+  }
+}
+
 export function h_put_prop(vm: any, [objectId, propNum, value]: number[]) {
   if (!vm.memory || !vm.header) {
     console.error("Memory or header not loaded");

@@ -75,10 +75,10 @@ export class ZConsole implements ZMInputOutputDevice {
       const url = `${this.zmcdnServer}/illustrateMove`;
       try {
         const data = await this.postJSON(url, zmcdnInput);
-        console.error(`Received ${data.length} bytes of sixel data`);
         // Dump sixel-formatted graphics to terminal
         process.stdout.write(data);
         process.stdout.write("\n");
+        process.stdout.write(zmcdnInput.lastZMachineOutput);
       } catch (error) {
         console.error(
           `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -251,8 +251,11 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeChar(char: string): Promise<void> {
-    this.ZMCDNText += char;
-    process.stdout.write(char);
+    if(this.zmcdnEnabled) {
+      this.ZMCDNText += char;
+    } else {
+      process.stdout.write(char);
+    }
     // Track potential prompt characters
     if (char === "\n") {
       this.currentPrompt = "";
@@ -266,8 +269,11 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeString(str: string): Promise<void> {
-    this.ZMCDNText += str;
-    process.stdout.write(str);
+    if(this.zmcdnEnabled) {
+      this.ZMCDNText += str;
+    } else {
+      process.stdout.write(str);
+    }
     // Track the last line as potential prompt
     const lines = str.split("\n");
     if (lines.length > 1) {
