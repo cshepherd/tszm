@@ -27,7 +27,7 @@ I've always wanted to write my own Z-Machine, and this one is starting to work r
 
 07-Oct-2025 - Preview of the above "Art Director Pattern":
 
-`curl https://cshepherd.fr/samplenew.txt`
+`curl https://cshepherd.fr/samplenew.txt` or use the public zmcdn server at zmcdn.ballmerpeak.org
 
 07-Oct-2025 - [Online coverage report from CI](https://cshepherd.github.io/tszm/coverage/)
 
