@@ -2,6 +2,7 @@ import {
   h_get_prop_len,
   h_get_prop,
   h_get_prop_addr,
+  h_get_next_prop,
   h_put_prop,
 } from "./properties";
 
@@ -302,6 +303,196 @@ describe("Property Handlers", () => {
       const vm = {};
 
       h_get_prop_addr(vm, [1, 5], {});
+      expect(consoleSpy).toHaveBeenCalledWith("Memory or header not loaded");
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe("h_get_next_prop", () => {
+    it("should return first property when propNum is 0 in v3", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // First property: prop 12, size 1
+      vm.memory.writeUInt8(0b00001100, propTableAddr + 1);
+      vm.memory.writeUInt8(42, propTableAddr + 2);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 0], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(12);
+    });
+
+    it("should return 0 when propNum is 0 and no properties exist", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      vm.memory.writeUInt8(0, propTableAddr + 1); // No properties
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 0], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0);
+    });
+
+    it("should return next property in v3", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // First property: prop 15, size 2
+      vm.memory.writeUInt8(0b00101111, propTableAddr + 1);
+      vm.memory.writeUInt16BE(0x1234, propTableAddr + 2);
+      // Second property: prop 8, size 1
+      vm.memory.writeUInt8(0b00001000, propTableAddr + 4);
+      vm.memory.writeUInt8(99, propTableAddr + 5);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 15], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(8);
+    });
+
+    it("should return 0 when at last property in v3", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // Only one property
+      vm.memory.writeUInt8(0b00001010, propTableAddr + 1);
+      vm.memory.writeUInt8(42, propTableAddr + 2);
+      vm.memory.writeUInt8(0, propTableAddr + 3); // End
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 10], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0);
+    });
+
+    it("should return 0 when property not found in v3", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      vm.memory.writeUInt8(0b00001010, propTableAddr + 1);
+      vm.memory.writeUInt8(42, propTableAddr + 2);
+      vm.memory.writeUInt8(0, propTableAddr + 3);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 99], { store: storeFn }); // Request non-existent property
+      expect(storeFn).toHaveBeenCalledWith(0);
+    });
+
+    it("should work through multiple properties in v3", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // Prop 20, size 1
+      vm.memory.writeUInt8(0b00010100, propTableAddr + 1);
+      vm.memory.writeUInt8(1, propTableAddr + 2);
+      // Prop 15, size 1
+      vm.memory.writeUInt8(0b00001111, propTableAddr + 3);
+      vm.memory.writeUInt8(2, propTableAddr + 4);
+      // Prop 10, size 1
+      vm.memory.writeUInt8(0b00001010, propTableAddr + 5);
+      vm.memory.writeUInt8(3, propTableAddr + 6);
+      vm.memory.writeUInt8(0, propTableAddr + 7);
+
+      const storeFn = jest.fn();
+
+      // Get first
+      h_get_next_prop(vm, [1, 0], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(20);
+
+      // Get second
+      storeFn.mockClear();
+      h_get_next_prop(vm, [1, 20], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(15);
+
+      // Get third
+      storeFn.mockClear();
+      h_get_next_prop(vm, [1, 15], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(10);
+
+      // Get end
+      storeFn.mockClear();
+      h_get_next_prop(vm, [1, 10], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(0);
+    });
+
+    it("should return first property when propNum is 0 in v5", () => {
+      const vm = createMockVMv5();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x400;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 12);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // First property: prop 25
+      vm.memory.writeUInt8(0b00011001, propTableAddr + 1); // 1-byte header
+      vm.memory.writeUInt8(100, propTableAddr + 2);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 0], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(25);
+    });
+
+    it("should handle 2-byte header in v5", () => {
+      const vm = createMockVMv5();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x400;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 12);
+      vm.memory.writeUInt8(0, propTableAddr);
+      // First property: prop 30, 2-byte header, size 5
+      vm.memory.writeUInt8(0b10011110, propTableAddr + 1); // Bit 7 set
+      vm.memory.writeUInt8(0b00000101, propTableAddr + 2); // Size 5
+      vm.memory.writeUInt8(1, propTableAddr + 3);
+      vm.memory.writeUInt8(2, propTableAddr + 4);
+      vm.memory.writeUInt8(3, propTableAddr + 5);
+      vm.memory.writeUInt8(4, propTableAddr + 6);
+      vm.memory.writeUInt8(5, propTableAddr + 7);
+      // Second property: prop 12, 1-byte header
+      vm.memory.writeUInt8(0b00001100, propTableAddr + 8);
+      vm.memory.writeUInt8(99, propTableAddr + 9);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 30], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(12);
+    });
+
+    it("should skip object name when getting first property", () => {
+      const vm = createMockVMv3();
+      const obj1Addr = vm.getObjectAddress(1);
+      const propTableAddr = 0x300;
+
+      vm.memory.writeUInt16BE(propTableAddr, obj1Addr + 7);
+      vm.memory.writeUInt8(3, propTableAddr); // Name length = 3 words
+      // Property starts after 1 + 3*2 = 7 bytes
+      vm.memory.writeUInt8(0b00001111, propTableAddr + 7);
+      vm.memory.writeUInt8(77, propTableAddr + 8);
+
+      const storeFn = jest.fn();
+      h_get_next_prop(vm, [1, 0], { store: storeFn });
+      expect(storeFn).toHaveBeenCalledWith(15);
+    });
+
+    it("should log error when memory not loaded", () => {
+      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+      const vm = {};
+
+      h_get_next_prop(vm, [1, 5], {});
       expect(consoleSpy).toHaveBeenCalledWith("Memory or header not loaded");
 
       consoleSpy.mockRestore();
