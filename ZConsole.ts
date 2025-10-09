@@ -19,6 +19,7 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnServer: string | undefined = "";
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
+  private lastzmcdnInput: ZMCDNInput | null = null;
 
   constructor(zmcdnServer: string | undefined) {
     this.zmcdnServer = zmcdnServer;
@@ -71,6 +72,7 @@ export class ZConsole implements ZMInputOutputDevice {
       }
 
       zmcdnInput.illustrationFormat = 'sixel';
+      this.lastzmcdnInput = zmcdnInput;
 
       const url = `${this.zmcdnServer}/illustrateMove`;
       try {
@@ -242,6 +244,30 @@ export class ZConsole implements ZMInputOutputDevice {
             this.zmcdnServer = arg;
             this.zmcdnEnabled = true;
             console.log(`ZMCDN image fetching enabled with server: ${arg}`);
+          }
+          return this.readLine().then(resolve);
+        }
+
+        // Check for redraw command
+        if (line.trim() === "/redraw") {
+          if (!this.lastzmcdnInput) {
+            console.log("No previous ZMCDN input to redraw");
+          } else if (!this.zmcdnEnabled) {
+            console.log("ZMCDN is disabled");
+          } else {
+            const redrawInput = { ...this.lastzmcdnInput, invalidate: true };
+            const url = `${this.zmcdnServer}/illustrateMove`;
+            this.postJSON(url, redrawInput)
+              .then((data) => {
+                process.stdout.write(data);
+                process.stdout.write("\n");
+                process.stdout.write(redrawInput.lastZMachineOutput);
+              })
+              .catch((error) => {
+                console.error(
+                  `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              });
           }
           return this.readLine().then(resolve);
         }
