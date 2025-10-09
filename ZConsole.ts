@@ -28,26 +28,43 @@ export class ZConsole implements ZMInputOutputDevice {
 
   private static normalizeZmcdnUrl(raw?: string): string | undefined {
     if (!raw) return undefined;
-    const trimmed = raw.trim();
-    if (!trimmed) return undefined;
+    let s = raw.trim();
+    if (!s) return undefined;
 
-    // if user typed an explicit scheme, only allow http/https. Others are invalid.
-    if (/:\/\//.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+    // fix common "missing colon" typos: https//host or http//host
+    //    e.g., "https//foo" -> "https://foo"
+    s = s.replace(/^(https?)(\/\/)(?!\/)/i, (_m, proto: string) => `${proto}://`);
+
+    // reject non http/https protocols
+    if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(s) && !/^https?:\/\//i.test(s)) {
       return undefined;
     }
 
-    // If already http/https, keep as-is; otherwise default to http://
-    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+    // catch some typical typos
+    if (/^\/\//.test(s)) {
+      s = `http:${s}`;
+    }
 
+    // default to http
+    if (!/^https?:\/\//i.test(s)) {
+      s = `http://${s}`;
+    }
+
+    // 5) Parse and normalize
     try {
-      const u = new URL(withScheme);
-      u.hash = "";
-      return u.toString().replace(/\/+$/, "");
+      const u = new URL(s);
+
+      // Guard against double-scheme accidents like "http://https//host"
+      if (/^https?:$/.test(u.protocol) && /^https?\/\//i.test(u.hostname)) {
+        return undefined;
+      }
+
+      u.hash = ""; // drop fragments
+      return u.toString().replace(/\/+$/, ""); // strip trailing slash(es)
     } catch {
       return undefined;
     }
   }
-
 
   constructor(zmcdnServer: string | undefined) {
     const normalized = ZConsole.normalizeZmcdnUrl(zmcdnServer);
@@ -124,33 +141,40 @@ export class ZConsole implements ZMInputOutputDevice {
     return Promise.resolve();
   }
 
-  private postJSON(url: string, data: any): Promise<string> {
+  private postJSON(urlStr: string, data: unknown): Promise<string> {
     return new Promise((resolve, reject) => {
       const postData = JSON.stringify(data);
-      const urlObj = new URL(url);
-      const options = {
+      const urlObj = new URL(urlStr); // assume caller passed normalized base + path
+      const client = ZConsole.getHttpModule(urlObj);
+
+      const options: http.RequestOptions = {
+        protocol: urlObj.protocol,
         hostname: urlObj.hostname,
         port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
-        path: urlObj.pathname,
+        path: `${urlObj.pathname}${urlObj.search}`, // keep any ?query=params
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(postData),
         },
+        // If URL includes user:pass, pass it through for basic auth:
+        auth: urlObj.username
+          ? `${decodeURIComponent(urlObj.username)}:${decodeURIComponent(urlObj.password)}`
+          : undefined,
       };
 
-      const req = http.request(options, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
+      const req = client.request(options, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 400) {
+          // drain to free sockets
           res.resume();
+          reject(new Error(`HTTP ${status}`));
           return;
         }
-
+  
         let responseData = "";
         res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          responseData += chunk;
-        });
+        res.on("data", (chunk) => { responseData += chunk; });
         res.on("end", () => resolve(responseData));
       });
 

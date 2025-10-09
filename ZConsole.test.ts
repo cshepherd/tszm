@@ -500,6 +500,24 @@ describe("ZConsole constructor", () => {
     expect(z.isZmcdnEnabled).toBe(false);
     expect(z.zmcdnServerUrl).toBeUndefined();
   });
+
+  test("fixes https// without colon", () => {
+    const z = new ZConsole("https//example.org");
+    expect(z.zmcdnServerUrl).toBe("https://example.org");
+    expect(z.isZmcdnEnabled).toBe(true);
+  });
+
+  test("fixes http// without colon", () => {
+    const z = new ZConsole("http//example.org");
+    expect(z.zmcdnServerUrl).toBe("http://example.org");
+    expect(z.isZmcdnEnabled).toBe(true);
+  });
+
+  test("protocol-relative //host -> http", () => {
+    const z = new ZConsole("//example.org");
+    expect(z.zmcdnServerUrl).toBe("http://example.org");
+  });
+
 });
 
 describe("normalizeZmcdnUrl (static)", () => {
