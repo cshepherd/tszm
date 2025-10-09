@@ -37,17 +37,54 @@ export class MockVM {
     return 0;
   }
 
-  _readOperandTypes(): string[] {
+  _decodeOperandWithInfo(type: string): { value: number; type: string; varNum?: number } {
+    this.decodeOperandLog.push(type);
+    if (type === "large") {
+      return { value: this._fetchWord(), type: "large" };
+    } else if (type === "small") {
+      return { value: this._fetchByte(), type: "small" };
+    } else if (type === "var") {
+      const varNum = this._fetchByte();
+      return { value: varNum, type: "var", varNum };
+    }
+    return { value: 0, type };
+  }
+
+  _readOperandTypes(opcode?: number): string[] {
     const typeByte = this._fetchByte();
     this.readOperandTypesLog.push(typeByte);
     const types: string[] = [];
+
+    // Read first 4 operand types
+    let hasOmit = false;
     for (let i = 6; i >= 0; i -= 2) {
       const bits = (typeByte >> i) & 0x03;
       if (bits === 0) types.push("large");
       else if (bits === 1) types.push("small");
       else if (bits === 2) types.push("var");
-      else types.push("omit");
+      else {
+        types.push("omit");
+        hasOmit = true;
+      }
     }
+
+    // Only call_vs2 (0xec) and call_vn2 (0xfa) support double-type-bytes for 8 operands
+    const supportsDoubleTypeByte = opcode === 0xec || opcode === 0xfa;
+    if (!hasOmit && supportsDoubleTypeByte) {
+      const typeByte2 = this._fetchByte();
+      this.readOperandTypesLog.push(typeByte2);
+      for (let i = 6; i >= 0; i -= 2) {
+        const bits = (typeByte2 >> i) & 0x03;
+        if (bits === 0) types.push("large");
+        else if (bits === 1) types.push("small");
+        else if (bits === 2) types.push("var");
+        else {
+          types.push("omit");
+          break; // Once we hit omit in second byte, we're done
+        }
+      }
+    }
+
     return types;
   }
 

@@ -349,16 +349,57 @@ class ZMachine {
     }
   }
 
-  _readOperandTypes(): ("large" | "small" | "var" | "omit")[] {
+  _decodeOperandWithInfo(kind: "large" | "small" | "var"): { value: number; type: "large" | "small" | "var"; varNum?: number } {
+    if (kind === "large") {
+      return { value: this._fetchWord(), type: "large" };
+    } else if (kind === "small") {
+      return { value: this._fetchByte(), type: "small" };
+    } else {
+      // "var" - read variable
+      const varNum = this._fetchByte();
+      const value = this.getVariableValue(varNum);
+      if (value === undefined || value === null || isNaN(value)) {
+        console.error(`WARNING: getVariableValue(${varNum}) returned ${value}`);
+        return { value: 0, type: "var", varNum };
+      }
+      return { value, type: "var", varNum };
+    }
+  }
+
+  _readOperandTypes(opcode?: number): ("large" | "small" | "var" | "omit")[] {
     const typeByte = this._fetchByte();
     const types: ("large" | "small" | "var" | "omit")[] = [];
+
+    // Read first 4 operand types from first byte
+    let hasOmit = false;
     for (let i = 0; i < 4; i++) {
       const bits = (typeByte >> (6 - i * 2)) & 0b11;
       if (bits === 0b00) types.push("large");
       else if (bits === 0b01) types.push("small");
       else if (bits === 0b10) types.push("var");
-      else types.push("omit");
+      else {
+        types.push("omit");
+        hasOmit = true;
+      }
     }
+
+    // Only call_vs2 (0xec) and call_vn2 (0xfa) support double-type-bytes for 8 operands
+    // If all 4 operands were NOT omit AND this is one of those opcodes, read second type byte
+    const supportsDoubleTypeByte = opcode === 0xec || opcode === 0xfa;
+    if (!hasOmit && supportsDoubleTypeByte) {
+      const typeByte2 = this._fetchByte();
+      for (let i = 0; i < 4; i++) {
+        const bits = (typeByte2 >> (6 - i * 2)) & 0b11;
+        if (bits === 0b00) types.push("large");
+        else if (bits === 0b01) types.push("small");
+        else if (bits === 0b10) types.push("var");
+        else {
+          types.push("omit");
+          break; // Once we hit omit in second byte, we're done
+        }
+      }
+    }
+
     return types;
   }
 
@@ -404,10 +445,40 @@ class ZMachine {
       }
       traceOutput += ` [${di.desc.name}`;
       if (di.operands.length > 0) {
-        traceOutput += ` ${di.operands.map((o) => o.toString(16)).join(",")}`;
+        // Use operandInfo for better trace display
+        if (di.operandInfo && di.operandInfo.length > 0) {
+          const operandStrs = di.operandInfo.map((info) => {
+            if (info.type === "var" && info.varNum !== undefined) {
+              const varNum = info.varNum;
+              let varName: string;
+              if (varNum === 0) {
+                varName = "SP";
+              } else if (varNum < 16) {
+                varName = `L${varNum.toString(16).padStart(2, "0")}`;
+              } else {
+                varName = `G${(varNum - 16).toString(16).padStart(2, "0")}`;
+              }
+              return `${varName}`;
+            } else {
+              return `#${info.value.toString(16)}`;
+            }
+          });
+          traceOutput += ` ${operandStrs.join(",")}`;
+        } else {
+          traceOutput += ` ${di.operands.map((o) => o.toString(16)).join(",")}`;
+        }
       }
       if (di.storeTarget !== undefined) {
-        traceOutput += ` -> var${di.storeTarget}`;
+        const target = di.storeTarget;
+        let targetName: string;
+        if (target === 0) {
+          targetName = "SP";
+        } else if (target < 16) {
+          targetName = `L${target.toString(16).padStart(2, "0")}`;
+        } else {
+          targetName = `G${(target - 16).toString(16).padStart(2, "0")}`;
+        }
+        traceOutput += ` -> ${targetName}`;
       }
       if (di.branchInfo !== undefined) {
         traceOutput += ` ?branch(${di.branchInfo.branchOnTrue ? "T" : "F"}:${di.branchInfo.offset})`;

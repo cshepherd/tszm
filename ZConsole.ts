@@ -187,6 +187,12 @@ export class ZConsole implements ZMInputOutputDevice {
     await this.processZMCDNText();
     return new Promise<string>((resolve) => {
       process.stdin.once("keypress", ({ shift, name }: Key) => {
+        // Handle undefined name
+        if (!name) {
+          resolve("\r"); // Return carriage return for undefined keys
+          return;
+        }
+
         if (name.length === 1) {
           if (shift) {
             resolve(name.toUpperCase());
@@ -195,7 +201,31 @@ export class ZConsole implements ZMInputOutputDevice {
           resolve(name.toLowerCase());
           return;
         }
+
+        // Handle special keys
         switch (name) {
+          case "return":
+            resolve("\r"); // ZSCII 13 (carriage return)
+            return;
+          case "escape":
+            resolve("\x1b"); // ZSCII 27 (escape)
+            return;
+          case "delete":
+          case "backspace":
+            resolve("\b"); // ZSCII 8 (backspace)
+            return;
+          case "up":
+            resolve("\x81"); // ZSCII 129 (cursor up)
+            return;
+          case "down":
+            resolve("\x82"); // ZSCII 130 (cursor down)
+            return;
+          case "left":
+            resolve("\x83"); // ZSCII 131 (cursor left)
+            return;
+          case "right":
+            resolve("\x84"); // ZSCII 132 (cursor right)
+            return;
           default: {
             throw new Error(`Unhandled key "${name}"`);
           }
