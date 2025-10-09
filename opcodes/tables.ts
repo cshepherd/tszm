@@ -39,6 +39,7 @@ import {
   h_get_prop_len,
   h_get_prop,
   h_get_prop_addr,
+  h_get_next_prop,
   h_put_prop,
 } from "./handlers/properties";
 import {
@@ -397,10 +398,7 @@ TABLE_2OP[0x13] = d2(0x13, {
   name: "get_next_prop",
   operandKinds: ["var", "var"],
   doesStore: true,
-  handler: (vm, ops, ctx) => {
-    // TODO: implement get_next_prop
-    console.error("get_next_prop not yet implemented");
-  },
+  handler: (vm, ops, ctx) => h_get_next_prop(vm, ops, ctx),
 });
 
 // Note: put_prop has 3 operands, but 2OP form only supports 2

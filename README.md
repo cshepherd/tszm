@@ -6,7 +6,7 @@
 
 - Abstractable input/output permitting the engine to be used in a variety of environments (console, web, others)
 - Support for the upcoming ZMCDN AI/LLM based enhancements for Interactive Fiction
-- Compatibility with z1-z6 (except text-windowing, graphics, sound)
+- Compatibility with z1-z4 (except text-windowing, graphics, sound)
 
 ## Building
 
@@ -27,25 +27,25 @@ npm run build.mjs
 
 06-Oct-2025: The Great Refactor happened. Trace output is much nicer and more complete, and tracing itself can be toggled in-game with `/trace on` and `/trace off`. And yes, we now have unit test coverage. Compatibility: z3 should be completely playable, working on z4/z5 now, but most effort is focusing on ZMCDN where the Game Master and Illustrator LLMs play.
 
-I am pleased to report we have a roadmap.
+07-Oct-2025 - [Online coverage report from CI](https://cshepherd.github.io/tszm/coverage/)
 
-## What's Next (05-Oct-2025, 100% Probability)
-I've always wanted to write my own Z-Machine, and this one is starting to work really well after just one week's effort! I could stop here and be pretty happy with myself. But then again, I'm not so sure, because the _product_ has a lot of potential and with another week of hard work, I think this could truly push the envelope of Interactive Fiction. With that in mind, here's what we gotta do before I'll be ready to claim "release quality," and it's happening this week, baby:
-- Refactor and unit test coverage: DONE
-- Game Master: An exciting new chunk of architecture will sit betweeen the Z-Machine and the ZMCDN. The Game Master will take "inside information" (since we control the Z-Machine after all) in addition to text output to formulate an intelligent JSON prompt to the ZMCDN, resulting in fewer unnecessary images, and much higher illustrative accuracy.
-- ZMCDN changes: With the above changes, maybe I could stick with gpt-image-1 at 13 cents per illustration, but probably the hell not. With SDXL-Turbo, for example, we get "free" images, and low enough resolution to get that chunky-pixel format that could go nicely with Interactive Fiction (Bonus: Low res images would work nicely for future Apple II ZMCDN integration, never say never).
+09-Oct-2025: Improving Unit Test coverage, but meanwhile ZMCDN is more complete and caches almost everything. When we don't get everything quite right though, you can `/redraw` and force ZMCDN to invalidate its cache and try again.
 
-I think the above points will take us from "meh another Z-Machine" to a reference-quality Inform implementation that leverages AI to push the envelope of Interactive Fiction. A product.
+Public zmcdn server is at zmcdn.ballmerpeak.org:3003
 
 <img width="806" height="520" alt="image" src="https://github.com/user-attachments/assets/309c4904-40f4-4d4e-b65d-d7cacb17d46b" />
 
-## What's Next Next (After That, 75% Probability)
-- Voice Changer: The Art Director can optionally change the text narrator's voice if we want, while remaining faithful to the story line. If you want Snoop or Walken to narrate the story, let's do it. Note that this opens the door for machine translation as well. Let's bring IF classics to non-English speakers.
-- Speech Mode: Enter commands as speech and the narrator talks back to you, for interactive fiction during roadtrips. It's a long drive from Florida to Maine, why not play Hitchhiker's Guide to keep you mentally sharp while you drive? Will require cheap Text-to-Speech and Speec-to-Text models, but I'm up for it.
+We're squashing a couple bugs and upgrading compatibility to .z4 next, but there's still more to come! You need to be able to enjoy interactive fiction during long roadtrips.
 
-The above points just sound cool as hell.
+## What's Next
+- Speech Mode: Enter commands as speech and the narrator talks back to you, for interactive fiction during roadtrips. It's a long drive from Florida to Maine, why not play Hitchhiker's Guide to keep you mentally sharp while you drive? Will require cheap Text-to-Speech and Speec-to-Text models, but I'm up for it.
+- Voice Changer: The Art Director can optionally change the text narrator's voice if we want, while remaining faithful to the story line. If you want Snoop or Walken to narrate the story, let's do it. Note that this opens the door for machine translation as well. Let's bring IF classics to non-English speakers.
 
 ## Credits
 - @cshepherd
-- @chad3814 (readline sanity, code review)
+- @chad3814 (readline sanity, code review, some tooling)
+- @clambertus (CI action for coverage reporting)
 - Design credit: Jay Craft once asked what it'd look like if we hooked an image generation AI up to a ZMachine, so I generally blame him for this
+
+## Sponsors
+This was made possible in part by a generous community contribution from Table 2 Consulting LLC.

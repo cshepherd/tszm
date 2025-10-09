@@ -40,7 +40,24 @@ export function h_print_addr(vm: any, [addr]: number[]) {
 }
 
 export function h_print_paddr(vm: any, [packedAddr]: number[]) {
-  const addr = packedAddr * 2;
+  // Packed string address calculation depends on version
+  // V1-3: multiply by 2
+  // V4-5: multiply by 4
+  // V6-7: multiply by 4 (or 8 for some V6/7 games, but typically 4)
+  // V8: multiply by 8
+  const version = vm.header?.version || 3;
+  let multiplier: number;
+  if (version <= 3) {
+    multiplier = 2;
+  } else if (version <= 5) {
+    multiplier = 4;
+  } else if (version <= 7) {
+    multiplier = 4; // Some V6/7 may use 8, but 4 is standard
+  } else {
+    multiplier = 8;
+  }
+
+  const addr = packedAddr * multiplier;
   const origPC = vm.pc;
   vm.pc = addr;
   vm.print();
