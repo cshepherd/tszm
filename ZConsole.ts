@@ -24,6 +24,7 @@ export class ZConsole implements ZMInputOutputDevice {
 
   // Blessed/ncurses components
   private screen: blessed.Widgets.Screen | null = null;
+  private statusLine: blessed.Widgets.BoxElement | null = null;
   private upperWindow: blessed.Widgets.BoxElement | null = null;
   private lowerWindow: blessed.Widgets.BoxElement | null = null;
   private currentWindow: number = 0; // 0 = lower, 1 = upper
@@ -54,14 +55,30 @@ export class ZConsole implements ZMInputOutputDevice {
     this.screen = blessed.screen({
       smartCSR: true,
       fullUnicode: true,
+      forceUnicode: true,
+      dockBorders: false,
+      ignoreLocked: ['C-c'],
     });
 
-    // Create lower window (main text area)
-    this.lowerWindow = blessed.box({
+    // Create fixed status line at top (inverse video spaces)
+    this.statusLine = blessed.box({
       top: 0,
       left: 0,
       width: '100%',
-      height: '100%',
+      height: 1,
+      style: {
+        fg: 'black',
+        bg: 'white'
+      },
+      content: ' '.repeat(200), // Fill with spaces
+    });
+
+    // Create lower window (main text area), starting below status line
+    this.lowerWindow = blessed.box({
+      top: 1,
+      left: 0,
+      width: '100%',
+      height: '100%-1',
       scrollable: true,
       alwaysScroll: true,
       scrollbar: {
@@ -76,6 +93,7 @@ export class ZConsole implements ZMInputOutputDevice {
       tags: true,
     });
 
+    this.screen.append(this.statusLine);
     this.screen.append(this.lowerWindow);
     this.screen.render();
   }
@@ -123,10 +141,78 @@ export class ZConsole implements ZMInputOutputDevice {
       const url = `${this.zmcdnServer}/illustrateMove`;
       try {
         const data = await this.postJSON(url, zmcdnInput);
-        // Dump sixel-formatted graphics to terminal
-        process.stdout.write(data);
-        process.stdout.write("\n");
-        process.stdout.write(zmcdnInput.lastZMachineOutput);
+
+        // If blessed mode is active, we need to temporarily show raw output
+        if (this.useBlessedMode && this.screen) {
+          // Save window contents before destroying
+          const savedLowerContent = this.lowerWindow?.getContent() || '';
+          const savedUpperContent = this.upperWindow?.getContent() || '';
+          const savedUpperWindowHeight = this.upperWindowHeight;
+
+          // Completely destroy blessed to fully clean up terminal state
+          this.screen.destroy();
+          this.screen = null;
+          this.statusLine = null;
+          this.upperWindow = null;
+          this.lowerWindow = null;
+
+          // Small delay to ensure cleanup completes
+          await new Promise(resolve => setTimeout(resolve, 50));
+
+          // Dump sixel-formatted graphics to terminal
+          process.stdout.write(data);
+          process.stdout.write("\n");
+          process.stdout.write(zmcdnInput.lastZMachineOutput);
+          process.stdout.write("\n[Press any key to continue...]");
+
+          // Wait for keypress - simple data event
+          await new Promise<void>((resolve) => {
+            const onData = () => {
+              process.stdin.removeListener('data', onData);
+              resolve();
+            };
+
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+            process.stdin.once('data', onData);
+          });
+
+          // Reset stdin to cooked mode
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+
+          // Small delay to ensure stdin settles
+          await new Promise(resolve => setTimeout(resolve, 50));
+
+          // Clear screen
+          process.stdout.write("\x1b[2J\x1b[H");
+
+          // Recreate blessed screen
+          this.initBlessedScreen();
+
+          // Restore window state
+          if (savedUpperWindowHeight > 0) {
+            this.splitWindow(savedUpperWindowHeight);
+          }
+
+          // Restore content
+          if (this.lowerWindow && savedLowerContent) {
+            (this.lowerWindow as any).setContent(savedLowerContent);
+            (this.lowerWindow as any).setScrollPerc(100);
+          }
+          if (this.upperWindow && savedUpperContent) {
+            (this.upperWindow as any).setContent(savedUpperContent);
+          }
+
+          if (this.screen) {
+            (this.screen as any).render();
+          }
+        } else {
+          // Not in blessed mode, just dump to stdout
+          process.stdout.write(data);
+          process.stdout.write("\n");
+          process.stdout.write(zmcdnInput.lastZMachineOutput);
+        }
       } catch (error) {
         console.error(
           `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -354,11 +440,20 @@ export class ZConsole implements ZMInputOutputDevice {
 
     if (this.useBlessedMode && this.screen) {
       // Use blessed input for line reading
-      return new Promise<string>((resolve) => {
-        if (!this.screen) return;
+      return new Promise<string>((resolve, reject) => {
+        if (!this.screen) {
+          reject(new Error("Blessed screen not initialized"));
+          return;
+        }
+
+        // Ensure we're scrolled to the bottom before showing input
+        const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
+        if (targetWindow) {
+          targetWindow.setScrollPerc(100);
+        }
 
         const input = blessed.textbox({
-          parent: this.lowerWindow || this.screen,
+          parent: this.screen,  // Attach to screen, not window
           bottom: 0,
           left: 0,
           height: 1,
@@ -458,16 +553,25 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeChar(char: string): Promise<void> {
+    // Always accumulate text for ZMCDN if enabled
     if(this.zmcdnEnabled) {
       this.ZMCDNText += char;
-    } else if (this.useBlessedMode) {
+    }
+
+    // Display the text
+    if (this.useBlessedMode) {
       const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
       if (targetWindow) {
         const currentContent = targetWindow.getContent();
         targetWindow.setContent(currentContent + char);
+        // Only scroll if it's the lower window (scrollable)
+        if (this.currentWindow === 0 && this.lowerWindow) {
+          this.lowerWindow.setScrollPerc(100);
+        }
         this.screen?.render();
       }
-    } else {
+    } else if (!this.zmcdnEnabled) {
+      // Only write to stdout if not in blessed mode and ZMCDN is not handling it
       process.stdout.write(char);
     }
     // Track potential prompt characters
@@ -483,16 +587,25 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeString(str: string): Promise<void> {
+    // Always accumulate text for ZMCDN if enabled
     if(this.zmcdnEnabled) {
       this.ZMCDNText += str;
-    } else if (this.useBlessedMode) {
+    }
+
+    // Display the text
+    if (this.useBlessedMode) {
       const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
       if (targetWindow) {
         const currentContent = targetWindow.getContent();
         targetWindow.setContent(currentContent + str);
+        // Only scroll if it's the lower window (scrollable)
+        if (this.currentWindow === 0 && this.lowerWindow) {
+          this.lowerWindow.setScrollPerc(100);
+        }
         this.screen?.render();
       }
-    } else {
+    } else if (!this.zmcdnEnabled) {
+      // Only write to stdout if not in blessed mode and ZMCDN is not handling it
       process.stdout.write(str);
     }
     // Track the last line as potential prompt
@@ -529,14 +642,14 @@ export class ZConsole implements ZMInputOutputDevice {
         this.upperWindow = null;
       }
       if (this.lowerWindow) {
-        this.lowerWindow.top = 0;
-        this.lowerWindow.height = '100%';
+        this.lowerWindow.top = 1; // Account for status line
+        this.lowerWindow.height = '100%-1';
       }
     } else {
-      // Create or resize upper window
+      // Create or resize upper window (below status line)
       if (!this.upperWindow) {
         this.upperWindow = blessed.box({
-          top: 0,
+          top: 1, // Start below status line
           left: 0,
           width: '100%',
           height: lines,
@@ -547,10 +660,10 @@ export class ZConsole implements ZMInputOutputDevice {
         this.upperWindow.height = lines;
       }
 
-      // Adjust lower window
+      // Adjust lower window (account for status line + upper window)
       if (this.lowerWindow) {
-        this.lowerWindow.top = lines;
-        this.lowerWindow.height = `100%-${lines}`;
+        this.lowerWindow.top = 1 + lines; // Status line + upper window
+        this.lowerWindow.height = `100%-${1 + lines}`;
       }
     }
 

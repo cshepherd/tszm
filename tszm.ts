@@ -2,6 +2,12 @@ import { ZMachine } from "./ZMachine";
 import { ZConsole } from "./ZConsole";
 
 async function main() {
+  // Set TERM to a safe value to avoid blessed terminfo parsing errors
+  // This prevents the Setulc capability error with xterm-256color
+  if (process.env.TERM === 'xterm-256color') {
+    process.env.TERM = 'xterm';
+  }
+
   // Parse command line arguments
   const args = process.argv.slice(2);
   const traceEnabled = args.includes("--trace");
