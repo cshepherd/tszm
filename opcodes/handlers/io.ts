@@ -344,89 +344,115 @@ export function h_print_table(vm: any, operands: number[]) {
 export function h_split_window(vm: any, [lines]: number[]) {
   // Split window (v3+)
   // lines = number of lines for upper window
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@split_window ${lines} (no-op)`);
+    console.log(`@split_window ${lines}`);
+  }
+  if (vm.inputOutputDevice?.splitWindow) {
+    vm.inputOutputDevice.splitWindow(lines);
   }
 }
 
 export function h_set_window(vm: any, [window]: number[]) {
   // Set current window (v3+)
   // window = 0 (lower) or 1 (upper)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@set_window ${window} (no-op)`);
+    console.log(`@set_window ${window}`);
+  }
+  if (vm.inputOutputDevice?.setWindow) {
+    vm.inputOutputDevice.setWindow(window);
   }
 }
 
 export function h_erase_window(vm: any, [window]: number[]) {
   // Erase window (v4+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@erase_window ${window} (no-op)`);
+    console.log(`@erase_window ${window}`);
+  }
+  if (vm.inputOutputDevice?.eraseWindow) {
+    vm.inputOutputDevice.eraseWindow(window);
   }
 }
 
 export function h_erase_line(vm: any, [value]: number[]) {
   // Erase line (v4+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@erase_line ${value} (no-op)`);
+    console.log(`@erase_line ${value}`);
+  }
+  if (vm.inputOutputDevice?.eraseLine) {
+    vm.inputOutputDevice.eraseLine(value);
   }
 }
 
 export function h_set_cursor(vm: any, [line, column]: number[]) {
   // Set cursor position (v4+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@set_cursor ${line},${column} (no-op)`);
+    console.log(`@set_cursor ${line},${column}`);
+  }
+  if (vm.inputOutputDevice?.setCursor) {
+    vm.inputOutputDevice.setCursor(line, column);
   }
 }
 
 export function h_get_cursor(vm: any, [array]: number[]) {
   // Get cursor position (v4+)
   // Store line and column at array and array+2
-  // Currently just write 1,1
   if (vm.memory) {
-    vm.memory.writeUInt16BE(1, array);
-    vm.memory.writeUInt16BE(1, array + 2);
+    let line = 1;
+    let column = 1;
+
+    if (vm.inputOutputDevice?.getCursor) {
+      const cursor = vm.inputOutputDevice.getCursor();
+      line = cursor.line;
+      column = cursor.column;
+    }
+
+    vm.memory.writeUInt16BE(line, array);
+    vm.memory.writeUInt16BE(column, array + 2);
   }
   if (vm.trace) {
-    console.log(`@get_cursor ${array} (stub: returning 1,1)`);
+    console.log(`@get_cursor ${array}`);
   }
 }
 
 export function h_set_text_style(vm: any, [style]: number[]) {
   // Set text style (v4+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@set_text_style ${style} (no-op)`);
+    console.log(`@set_text_style ${style}`);
+  }
+  if (vm.inputOutputDevice?.setTextStyle) {
+    vm.inputOutputDevice.setTextStyle(style);
   }
 }
 
 export function h_buffer_mode(vm: any, [flag]: number[]) {
   // Set buffer mode (v4+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@buffer_mode ${flag} (no-op)`);
+    console.log(`@buffer_mode ${flag}`);
+  }
+  if (vm.inputOutputDevice?.setBufferMode) {
+    vm.inputOutputDevice.setBufferMode(flag);
   }
 }
 
 export function h_output_stream(vm: any, [number, table]: number[]) {
   // Select output stream (v3+)
-  // Currently no-op
   if (vm.trace) {
     console.log(
-      `@output_stream ${number}${table !== undefined ? `,${table}` : ""} (no-op)`,
+      `@output_stream ${number}${table !== undefined ? `,${table}` : ""}`,
     );
+  }
+  if (vm.inputOutputDevice?.setOutputStream) {
+    vm.inputOutputDevice.setOutputStream(number, table);
   }
 }
 
 export function h_input_stream(vm: any, [number]: number[]) {
   // Select input stream (v3+)
-  // Currently no-op
   if (vm.trace) {
-    console.log(`@input_stream ${number} (no-op)`);
+    console.log(`@input_stream ${number}`);
+  }
+  if (vm.inputOutputDevice?.setInputStream) {
+    vm.inputOutputDevice.setInputStream(number);
   }
 }
 

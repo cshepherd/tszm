@@ -12,7 +12,7 @@ await esbuild.build({
   banner: {
     js: '#!/usr/bin/env node'
   },
-  external: [],
+  external: ['term.js', 'pty.js', 'blessed'],
 });
 
 console.log('Build complete!');

@@ -13,9 +13,9 @@
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.25",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
     "esbuild": "^0.25.10",
@@ -23,5 +23,8 @@
     "ts-jest": "^29.4.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81"
   }
 }

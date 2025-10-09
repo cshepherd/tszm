@@ -4,6 +4,7 @@ import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "./ZMachine";
 import * as crypto from "crypto";
 import * as http from "http";
+import * as blessed from "blessed";
 
 interface Key {
   ctrl: boolean;
@@ -21,17 +22,62 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnSessionId: string = "";
   private lastzmcdnInput: ZMCDNInput | null = null;
 
-  constructor(zmcdnServer: string | undefined) {
+  // Blessed/ncurses components
+  private screen: blessed.Widgets.Screen | null = null;
+  private upperWindow: blessed.Widgets.BoxElement | null = null;
+  private lowerWindow: blessed.Widgets.BoxElement | null = null;
+  private currentWindow: number = 0; // 0 = lower, 1 = upper
+  private upperWindowHeight: number = 0;
+  private currentTextStyle: number = 0;
+  private useBlessedMode: boolean = false;
+
+  constructor(zmcdnServer: string | undefined, useBlessedMode: boolean = false) {
     this.zmcdnServer = zmcdnServer;
     if (this.zmcdnServer) {
       this.zmcdnEnabled = true;
     }
-    this.rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      historySize: 100,
-      prompt: "",
+    this.useBlessedMode = useBlessedMode;
+
+    if (this.useBlessedMode) {
+      this.initBlessedScreen();
+    } else {
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: 100,
+        prompt: "",
+      });
+    }
+  }
+
+  private initBlessedScreen(): void {
+    this.screen = blessed.screen({
+      smartCSR: true,
+      fullUnicode: true,
     });
+
+    // Create lower window (main text area)
+    this.lowerWindow = blessed.box({
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: {
+        ch: ' ',
+        track: {
+          bg: 'cyan'
+        },
+        style: {
+          inverse: true
+        }
+      },
+      tags: true,
+    });
+
+    this.screen.append(this.lowerWindow);
+    this.screen.render();
   }
 
   setZMachine(zm: ZMachine): void {
@@ -185,6 +231,75 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async readChar(): Promise<string> {
     await this.processZMCDNText();
+
+    if (this.useBlessedMode && this.screen) {
+      // Use blessed key handling for character reading
+      return new Promise<string>((resolve) => {
+        if (!this.screen) return;
+
+        const onKey = (_ch: any, key: any) => {
+          // Remove the key handler
+          if (this.screen) {
+            this.screen.unkey('enter', onKey);
+            this.screen.unkey('escape', onKey);
+            this.screen.unkey('backspace', onKey);
+            this.screen.unkey('delete', onKey);
+            this.screen.unkey('up', onKey);
+            this.screen.unkey('down', onKey);
+            this.screen.unkey('left', onKey);
+            this.screen.unkey('right', onKey);
+          }
+
+          if (!key || !key.name) {
+            resolve('\r');
+            return;
+          }
+
+          if (key.name.length === 1) {
+            resolve(key.shift ? key.name.toUpperCase() : key.name.toLowerCase());
+            return;
+          }
+
+          switch (key.name) {
+            case 'enter':
+              resolve('\r');
+              break;
+            case 'escape':
+              resolve('\x1b');
+              break;
+            case 'backspace':
+            case 'delete':
+              resolve('\b');
+              break;
+            case 'up':
+              resolve('\x81');
+              break;
+            case 'down':
+              resolve('\x82');
+              break;
+            case 'left':
+              resolve('\x83');
+              break;
+            case 'right':
+              resolve('\x84');
+              break;
+            default:
+              resolve('\r');
+          }
+        };
+
+        // Listen for keys
+        this.screen.key('enter', onKey);
+        this.screen.key('escape', onKey);
+        this.screen.key('backspace', onKey);
+        this.screen.key('delete', onKey);
+        this.screen.key('up', onKey);
+        this.screen.key('down', onKey);
+        this.screen.key('left', onKey);
+        this.screen.key('right', onKey);
+      });
+    }
+
     return new Promise<string>((resolve) => {
       process.stdin.once("keypress", ({ shift, name }: Key) => {
         // Handle undefined name
@@ -237,10 +352,46 @@ export class ZConsole implements ZMInputOutputDevice {
   async readLine(): Promise<string> {
     await this.processZMCDNText();
 
+    if (this.useBlessedMode && this.screen) {
+      // Use blessed input for line reading
+      return new Promise<string>((resolve) => {
+        if (!this.screen) return;
+
+        const input = blessed.textbox({
+          parent: this.lowerWindow || this.screen,
+          bottom: 0,
+          left: 0,
+          height: 1,
+          width: '100%',
+          inputOnFocus: true,
+          keys: true,
+          style: {
+            fg: 'white',
+            bg: 'black'
+          }
+        });
+
+        input.on('submit', (value: string) => {
+          input.destroy();
+          this.screen?.render();
+          resolve(value || '');
+        });
+
+        input.focus();
+        this.screen.render();
+      });
+    }
+
     // Set the prompt so readline can preserve it during history navigation
+    if (!this.rl) {
+      throw new Error("Readline interface not initialized");
+    }
+
     this.rl.setPrompt(this.currentPrompt);
 
     return new Promise<string>((resolve) => {
+      if (!this.rl) return;
+
       // Readline needs to be prompted to manage the line properly
       this.rl.prompt();
 
@@ -309,6 +460,13 @@ export class ZConsole implements ZMInputOutputDevice {
   async writeChar(char: string): Promise<void> {
     if(this.zmcdnEnabled) {
       this.ZMCDNText += char;
+    } else if (this.useBlessedMode) {
+      const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
+      if (targetWindow) {
+        const currentContent = targetWindow.getContent();
+        targetWindow.setContent(currentContent + char);
+        this.screen?.render();
+      }
     } else {
       process.stdout.write(char);
     }
@@ -327,6 +485,13 @@ export class ZConsole implements ZMInputOutputDevice {
   async writeString(str: string): Promise<void> {
     if(this.zmcdnEnabled) {
       this.ZMCDNText += str;
+    } else if (this.useBlessedMode) {
+      const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
+      if (targetWindow) {
+        const currentContent = targetWindow.getContent();
+        targetWindow.setContent(currentContent + str);
+        this.screen?.render();
+      }
     } else {
       process.stdout.write(str);
     }
@@ -344,8 +509,137 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   close(): void {
-    this.rl.close();
+    if (this.useBlessedMode && this.screen) {
+      this.screen.destroy();
+    } else if (this.rl) {
+      this.rl.close();
+    }
   }
 
-  private rl: Interface;
+  // Window management methods (v3+)
+  splitWindow(lines: number): void {
+    if (!this.useBlessedMode || !this.screen) return;
+
+    this.upperWindowHeight = lines;
+
+    if (lines === 0) {
+      // No upper window
+      if (this.upperWindow) {
+        this.screen.remove(this.upperWindow);
+        this.upperWindow = null;
+      }
+      if (this.lowerWindow) {
+        this.lowerWindow.top = 0;
+        this.lowerWindow.height = '100%';
+      }
+    } else {
+      // Create or resize upper window
+      if (!this.upperWindow) {
+        this.upperWindow = blessed.box({
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: lines,
+          tags: true,
+        });
+        this.screen.append(this.upperWindow);
+      } else {
+        this.upperWindow.height = lines;
+      }
+
+      // Adjust lower window
+      if (this.lowerWindow) {
+        this.lowerWindow.top = lines;
+        this.lowerWindow.height = `100%-${lines}`;
+      }
+    }
+
+    this.screen.render();
+  }
+
+  setWindow(window: number): void {
+    if (!this.useBlessedMode) return;
+    this.currentWindow = window;
+  }
+
+  eraseWindow(window: number): void {
+    if (!this.useBlessedMode) return;
+
+    if (window === -1) {
+      // Erase entire screen and unsplit
+      this.splitWindow(0);
+      this.lowerWindow?.setContent('');
+    } else if (window === -2) {
+      // Erase entire screen without unsplitting
+      this.upperWindow?.setContent('');
+      this.lowerWindow?.setContent('');
+    } else if (window === 0) {
+      // Erase lower window
+      this.lowerWindow?.setContent('');
+    } else if (window === 1 && this.upperWindow) {
+      // Erase upper window
+      this.upperWindow.setContent('');
+    }
+
+    this.screen?.render();
+  }
+
+  eraseLine(_value: number): void {
+    if (!this.useBlessedMode) return;
+
+    const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
+    if (!targetWindow) return;
+
+    // Get current cursor position and erase from cursor to end of line
+    // For simplicity, we'll just add spaces (blessed doesn't have direct line erase)
+    // This is a simplified implementation
+    this.screen?.render();
+  }
+
+  setCursor(_line: number, _column: number): void {
+    if (!this.useBlessedMode || !this.screen) return;
+
+    const targetWindow = this.currentWindow === 1 ? this.upperWindow : this.lowerWindow;
+    if (!targetWindow) return;
+
+    // Move cursor to specified position (1-indexed in Z-machine)
+    // Blessed uses 0-indexed positions
+    // This would need more sophisticated cursor tracking
+    this.screen.render();
+  }
+
+  getCursor(): { line: number; column: number } {
+    if (!this.useBlessedMode) {
+      return { line: 1, column: 1 };
+    }
+
+    // Return current cursor position (simplified - always return 1,1 for now)
+    // Would need cursor tracking implementation
+    return { line: 1, column: 1 };
+  }
+
+  setTextStyle(style: number): void {
+    if (!this.useBlessedMode) return;
+    this.currentTextStyle = style;
+    // Style bits:
+    // 0 = Roman (normal)
+    // 1 = Reverse video
+    // 2 = Bold
+    // 4 = Italic
+    // 8 = Fixed-pitch
+  }
+
+  setBufferMode(_flag: number): void {
+    // Buffer mode control - currently no-op even in blessed mode
+  }
+
+  setOutputStream(_number: number, _table?: number): void {
+    // Output stream control - currently no-op
+  }
+
+  setInputStream(_number: number): void {
+    // Input stream control - currently no-op
+  }
+
+  private rl: Interface | null = null;
 }

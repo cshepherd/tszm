@@ -31,7 +31,7 @@ async function main() {
     process.exit(0);
   });
 
-  const consoleDevice = new ZConsole(zmcdnServer);
+  const consoleDevice = new ZConsole(zmcdnServer, true);
   const zm = new ZMachine(zImagePath, consoleDevice);
 
   if (traceEnabled) {
