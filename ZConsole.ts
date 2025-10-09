@@ -17,10 +17,11 @@ export class ZConsole implements ZMInputOutputDevice {
   private ZMCDNText: string = "";
   private zm: ZMachine | null = null;
   private zmcdnEnabled: boolean = false;
-  private zmcdnServer: string | undefined = "";
+  private zmcdnServer: string | undefined;
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
 
+  // set our protocol for future https update
   private static getHttpModule(url: URL) {
     return url.protocol === "https:" ? https : http;
   }
@@ -30,19 +31,23 @@ export class ZConsole implements ZMInputOutputDevice {
     const trimmed = raw.trim();
     if (!trimmed) return undefined;
 
+    // if user typed an explicit scheme, only allow http/https. Others are invalid.
+    if (/:\/\//.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+      return undefined;
+    }
+
+    // If already http/https, keep as-is; otherwise default to http://
     const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 
     try {
       const u = new URL(withScheme);
-      // optional cleanups
       u.hash = "";
-      const s = u.toString().replace(/\/+$/, ""); // strip trailing slash(es)
-      return s;
+      return u.toString().replace(/\/+$/, "");
     } catch {
-      // Malformed; caller can decide to disable the feature.
       return undefined;
     }
   }
+
 
   constructor(zmcdnServer: string | undefined) {
     const normalized = ZConsole.normalizeZmcdnUrl(zmcdnServer);
@@ -50,7 +55,8 @@ export class ZConsole implements ZMInputOutputDevice {
     if (normalized) {
       this.zmcdnServer = normalized;
       this.zmcdnEnabled = true;
-    } else {
+    } else if (typeof zmcdnServer === "string" && zmcdnServer.trim() !== "") {
+      // warn only if value is provided and malformed
       console.warn(`Ignoring invalid --zmcdn value: ${String(zmcdnServer)}`);
       this.zmcdnEnabled = false;
     }
@@ -313,6 +319,9 @@ export class ZConsole implements ZMInputOutputDevice {
   close(): void {
     this.rl.close();
   }
+
+  get isZmcdnEnabled() { return this.zmcdnEnabled; }
+  get zmcdnServerUrl() { return this.zmcdnServer; }
 
   private rl: Interface;
 }

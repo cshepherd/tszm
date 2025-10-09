@@ -450,3 +450,74 @@ describe("ZConsole", () => {
     });
   });
 });
+
+describe("ZConsole constructor", () => {
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  test("undefined zmcdnServer → no warn, disabled", () => {
+    const z = new ZConsole(undefined);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(z.isZmcdnEnabled).toBe(false);
+    expect(z.zmcdnServerUrl).toBeUndefined();
+  });
+
+  test("empty string → no warn, disabled", () => {
+    const z = new ZConsole("");
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(z.isZmcdnEnabled).toBe(false);
+  });
+
+  test("host without scheme → defaults to http", () => {
+    const z = new ZConsole("example.org:3000");
+    expect(z.zmcdnServerUrl).toBe("http://example.org:3000");
+    expect(z.isZmcdnEnabled).toBe(true);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("http url stays http", () => {
+    const z = new ZConsole("http://example.org");
+    expect(z.zmcdnServerUrl).toBe("http://example.org");
+    expect(z.isZmcdnEnabled).toBe(true);
+  });
+
+  test("https url trims trailing slash", () => {
+    const z = new ZConsole("https://example.org/");
+    expect(z.zmcdnServerUrl).toBe("https://example.org");
+    expect(z.isZmcdnEnabled).toBe(true);
+  });
+
+  test("malformed url → warns and disables", () => {
+    const z = new ZConsole("htp://bad");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(z.isZmcdnEnabled).toBe(false);
+    expect(z.zmcdnServerUrl).toBeUndefined();
+  });
+});
+
+describe("normalizeZmcdnUrl (static)", () => {
+  test.each([
+    [undefined, undefined],
+    ["", undefined],
+    ["   ", undefined],
+    ["foo", "http://foo"],
+    ["foo/", "http://foo"],
+    ["http://bar/", "http://bar"],
+    ["https://bar/", "https://bar"],
+  ])("normalize %p → %p", (input, expected) => {
+    const out = (ZConsole as any).normalizeZmcdnUrl(input);
+    expect(out).toBe(expected);
+  });
+
+  test("rejects junk", () => {
+    const out = (ZConsole as any).normalizeZmcdnUrl("htp://bad");
+    expect(out).toBeUndefined();
+  });
+});
