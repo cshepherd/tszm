@@ -20,6 +20,7 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnServer: string | undefined;
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
+  private lastzmcdnInput: ZMCDNInput | null = null;
 
   // set our protocol for future https update
   private static getHttpModule(url: URL) {
@@ -105,6 +106,7 @@ export class ZConsole implements ZMInputOutputDevice {
         console.error("ZMachine not initialized");
         return;
       }
+
       zmcdnInput.lastZMachineInput = this.zm.getLastRead();
 
       const header = this.zm.getHeader();
@@ -123,15 +125,15 @@ export class ZConsole implements ZMInputOutputDevice {
       }
 
       zmcdnInput.illustrationFormat = 'sixel';
+      this.lastzmcdnInput = zmcdnInput;
 
       const url = `${this.zmcdnServer}/illustrateMove`;
-
       try {
         const data = await this.postJSON(url, zmcdnInput);
-        console.error(`Received ${data.length} bytes of sixel data`);
         // Dump sixel-formatted graphics to terminal
         process.stdout.write(data);
         process.stdout.write("\n");
+        process.stdout.write(zmcdnInput.lastZMachineOutput);
       } catch (error) {
         console.error(
           `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -164,18 +166,19 @@ export class ZConsole implements ZMInputOutputDevice {
       };
 
       const req = client.request(options, (res) => {
-        const status = res.statusCode ?? 0;
-        if (status >= 400) {
-          // drain to free sockets
-          res.resume();
-          reject(new Error(`HTTP ${status}`));
-          return;
-        }
-  
         let responseData = "";
         res.setEncoding("utf8");
-        res.on("data", (chunk) => { responseData += chunk; });
-        res.on("end", () => resolve(responseData));
+        res.on("data", (chunk) => {
+          responseData += chunk;
+        });
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            console.error(`HTTP ${res.statusCode} error response:`, responseData);
+            reject(new Error(`HTTP ${res.statusCode}: ${responseData}`));
+            return;
+          }
+          resolve(responseData);
+        });
       });
 
       req.on("error", reject);
@@ -254,6 +257,12 @@ export class ZConsole implements ZMInputOutputDevice {
     await this.processZMCDNText();
     return new Promise<string>((resolve) => {
       process.stdin.once("keypress", ({ shift, name }: Key) => {
+        // Handle undefined name
+        if (!name) {
+          resolve("\r"); // Return carriage return for undefined keys
+          return;
+        }
+
         if (name.length === 1) {
           if (shift) {
             resolve(name.toUpperCase());
@@ -262,7 +271,31 @@ export class ZConsole implements ZMInputOutputDevice {
           resolve(name.toLowerCase());
           return;
         }
+
+        // Handle special keys
         switch (name) {
+          case "return":
+            resolve("\r"); // ZSCII 13 (carriage return)
+            return;
+          case "escape":
+            resolve("\x1b"); // ZSCII 27 (escape)
+            return;
+          case "delete":
+          case "backspace":
+            resolve("\b"); // ZSCII 8 (backspace)
+            return;
+          case "up":
+            resolve("\x81"); // ZSCII 129 (cursor up)
+            return;
+          case "down":
+            resolve("\x82"); // ZSCII 130 (cursor down)
+            return;
+          case "left":
+            resolve("\x83"); // ZSCII 131 (cursor left)
+            return;
+          case "right":
+            resolve("\x84"); // ZSCII 132 (cursor right)
+            return;
           default: {
             throw new Error(`Unhandled key "${name}"`);
           }
@@ -314,14 +347,41 @@ export class ZConsole implements ZMInputOutputDevice {
           }
           return this.readLine().then(resolve);
         }
+
+        // Check for redraw command
+        if (line.trim() === "/redraw") {
+          if (!this.lastzmcdnInput) {
+            console.log("No previous ZMCDN input to redraw");
+          } else if (!this.zmcdnEnabled) {
+            console.log("ZMCDN is disabled");
+          } else {
+            const redrawInput = { ...this.lastzmcdnInput, invalidate: true };
+            const url = `${this.zmcdnServer}/illustrateMove`;
+            this.postJSON(url, redrawInput)
+              .then((data) => {
+                process.stdout.write(data);
+                process.stdout.write("\n");
+                process.stdout.write(redrawInput.lastZMachineOutput);
+              })
+              .catch((error) => {
+                console.error(
+                  `Failed to fetch graphics from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              });
+          }
+          return this.readLine().then(resolve);
+        }
         resolve(line);
       });
     });
   }
 
   async writeChar(char: string): Promise<void> {
-    this.ZMCDNText += char;
-    process.stdout.write(char);
+    if(this.zmcdnEnabled) {
+      this.ZMCDNText += char;
+    } else {
+      process.stdout.write(char);
+    }
     // Track potential prompt characters
     if (char === "\n") {
       this.currentPrompt = "";
@@ -335,8 +395,11 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeString(str: string): Promise<void> {
-    this.ZMCDNText += str;
-    process.stdout.write(str);
+    if(this.zmcdnEnabled) {
+      this.ZMCDNText += str;
+    } else {
+      process.stdout.write(str);
+    }
     // Track the last line as potential prompt
     const lines = str.split("\n");
     if (lines.length > 1) {

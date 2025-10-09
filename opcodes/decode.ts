@@ -7,9 +7,16 @@ import {
   TABLE_EXT,
 } from "./tables";
 
+export interface OperandInfo {
+  value: number;
+  type: "large" | "small" | "var";
+  varNum?: number; // Only set if type === "var"
+}
+
 export interface DecodedInstr {
   desc: InstrDescriptor;
   operands: number[];
+  operandInfo?: OperandInfo[]; // For trace/disassembly purposes
   // Dispatcher fills these according to desc.doesStore / doesBranch
   storeTarget?: number; // variable number to store into (if any)
   branchInfo?: { offset: number; branchOnTrue: boolean };
@@ -76,6 +83,7 @@ export function decodeNext(vm: any): DecodedInstr {
 
   // --- Operands ---
   const operands: number[] = [];
+  const operandInfo: OperandInfo[] = [];
 
   if (isLongForm2OP) {
     // Long form 2OP: operand types are encoded in the first byte
@@ -83,33 +91,43 @@ export function decodeNext(vm: any): DecodedInstr {
     // Bit 5: second operand type (0=small, 1=variable)
     const type1 = first & 0x40 ? "var" : "small";
     const type2 = first & 0x20 ? "var" : "small";
-    operands.push(vm._decodeOperand(type1));
-    operands.push(vm._decodeOperand(type2));
+    const info1 = vm._decodeOperandWithInfo(type1);
+    const info2 = vm._decodeOperandWithInfo(type2);
+    operands.push(info1.value, info2.value);
+    operandInfo.push(info1, info2);
   } else if (
     kind === "VAR" ||
     kind === "EXT" ||
     (kind === "2OP" && !isLongForm2OP)
   ) {
     // Variable form, EXT, or VAR_2OP (0xC0-0xDF): read operand-type byte(s) and decode until "omit"
-    const types = vm._readOperandTypes();
+    // Pass opnum to check if this is call_vs2 (0xec) or call_vn2 (0xfa) which support double-type-bytes
+    const types = vm._readOperandTypes(opnum);
     for (const t of types) {
       if (t === "omit") break;
-      operands.push(vm._decodeOperand(t));
+      const info = vm._decodeOperandWithInfo(t);
+      operands.push(info.value);
+      operandInfo.push(info);
     }
   } else if (kind === "1OP" && !desc.operandKinds) {
     // Short form 1OP: operand type encoded in bits 4-5 of first byte
     const operandTypeBits = (first >> 4) & 0x03;
     const type =
       operandTypeBits === 0 ? "large" : operandTypeBits === 1 ? "small" : "var";
-    operands.push(vm._decodeOperand(type));
+    const info = vm._decodeOperandWithInfo(type);
+    operands.push(info.value);
+    operandInfo.push(info);
   } else if (desc.operandKinds && desc.operandKinds.length) {
     // Use descriptor's operand kinds
-    for (const kind of desc.operandKinds)
-      operands.push(vm._decodeOperand(kind));
+    for (const kind of desc.operandKinds) {
+      const info = vm._decodeOperandWithInfo(kind);
+      operands.push(info.value);
+      operandInfo.push(info);
+    }
   }
 
   // --- Store/Branch plumbing (the dispatcher will bind helpers to use these) ---
-  const out: DecodedInstr = { desc, operands };
+  const out: DecodedInstr = { desc, operands, operandInfo };
   if (desc.doesStore) out.storeTarget = vm._fetchByte(); // variable number (var spec)
   if (desc.doesBranch) out.branchInfo = vm._readBranchOffset();
   return out;

@@ -71,8 +71,8 @@ describe("ZConsole", () => {
       expect(stdoutSpy).toHaveBeenCalledWith("a");
     });
 
-    it("should accumulate ZMCDN text", async () => {
-      const console = new ZConsole(undefined);
+    it("should accumulate ZMCDN text when enabled", async () => {
+      const console = new ZConsole("http://localhost:3000");
       await console.writeChar("h");
       await console.writeChar("i");
       expect((console as any).ZMCDNText).toBe("hi");
@@ -114,14 +114,14 @@ describe("ZConsole", () => {
       stdoutSpy.mockRestore();
     });
 
-    it("should write string to stdout", async () => {
-      const console = new ZConsole(undefined);
+    it("should accumulate string in ZMCDNText when enabled", async () => {
+      const console = new ZConsole("http://localhost:3000");
       await console.writeString("hello");
-      expect(stdoutSpy).toHaveBeenCalledWith("hello");
+      expect((console as any).ZMCDNText).toBe("hello");
     });
 
-    it("should accumulate ZMCDN text", async () => {
-      const console = new ZConsole(undefined);
+    it("should accumulate ZMCDN text when enabled", async () => {
+      const console = new ZConsole("http://localhost:3000");
       await console.writeString("hello");
       await console.writeString(" world");
       expect((console as any).ZMCDNText).toBe("hello world");
