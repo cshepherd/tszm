@@ -27,10 +27,13 @@ export class ZConsole implements ZMInputOutputDevice {
   private statusLine: blessed.Widgets.BoxElement | null = null;
   private upperWindow: blessed.Widgets.BoxElement | null = null;
   private lowerWindow: blessed.Widgets.BoxElement | null = null;
+  private graphicsArea: blessed.Widgets.BoxElement | null = null;
+  private inputBox: blessed.Widgets.BoxElement | null = null;
   private currentWindow: number = 0; // 0 = lower, 1 = upper
   private upperWindowHeight: number = 0;
   private currentTextStyle: number = 0;
   private useBlessedMode: boolean = false;
+  private graphicsHeight: number = 0; // Reserved space for sixel graphics
 
   constructor(zmcdnServer: string | undefined, useBlessedMode: boolean = false) {
     this.zmcdnServer = zmcdnServer;
@@ -73,12 +76,24 @@ export class ZConsole implements ZMInputOutputDevice {
       content: ' '.repeat(200), // Fill with spaces
     });
 
-    // Create lower window (main text area), starting below status line
+    // Create graphics area (reserved space for sixel, initially hidden)
+    this.graphicsArea = blessed.box({
+      top: 1,
+      left: 0,
+      width: '100%',
+      height: 0, // Initially no graphics
+      style: {
+        fg: 'white',
+        bg: 'black'
+      },
+    });
+
+    // Create lower window (main text area), starting below status line + graphics
     this.lowerWindow = blessed.box({
       top: 1,
       left: 0,
       width: '100%',
-      height: '100%-1',
+      height: '100%-3', // Account for status line and input box
       scrollable: true,
       alwaysScroll: true,
       scrollbar: {
@@ -93,8 +108,23 @@ export class ZConsole implements ZMInputOutputDevice {
       tags: true,
     });
 
+    // Create input box at bottom
+    this.inputBox = blessed.box({
+      bottom: 0,
+      left: 0,
+      width: '100%',
+      height: 2,
+      style: {
+        fg: 'white',
+        bg: 'black'
+      },
+      content: '',
+    });
+
     this.screen.append(this.statusLine);
+    this.screen.append(this.graphicsArea);
     this.screen.append(this.lowerWindow);
+    this.screen.append(this.inputBox);
     this.screen.render();
   }
 
@@ -142,71 +172,44 @@ export class ZConsole implements ZMInputOutputDevice {
       try {
         const data = await this.postJSON(url, zmcdnInput);
 
-        // If blessed mode is active, we need to temporarily show raw output
+        // If blessed mode is active, integrate graphics into the layout
         if (this.useBlessedMode && this.screen) {
-          // Save window contents before destroying
-          const savedLowerContent = this.lowerWindow?.getContent() || '';
-          const savedUpperContent = this.upperWindow?.getContent() || '';
-          const savedUpperWindowHeight = this.upperWindowHeight;
+          // Sixel images are exactly 16 lines
+          const graphicsLines = 16;
+          this.graphicsHeight = graphicsLines;
 
-          // Completely destroy blessed to fully clean up terminal state
-          this.screen.destroy();
-          this.screen = null;
-          this.statusLine = null;
-          this.upperWindow = null;
-          this.lowerWindow = null;
+          // Resize the graphics area
+          if (this.graphicsArea) {
+            this.graphicsArea.height = graphicsLines;
+          }
 
-          // Small delay to ensure cleanup completes
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Adjust lower window position to be below graphics
+          // Layout: 1 line status + 16 lines graphics + remaining for text + 2 lines input
+          if (this.lowerWindow) {
+            this.lowerWindow.top = 1 + graphicsLines;
+            this.lowerWindow.height = `100%-${1 + graphicsLines + 2}`;
+          }
 
-          // Dump sixel-formatted graphics to terminal
+          // Hide cursor and lock screen updates
+          if (this.screen.program) {
+            this.screen.program.hideCursor();
+            this.screen.program.flush();
+          }
+
+          // Position cursor at graphics area (row 2, just below status line)
+          // Blessed uses 1-indexed coordinates
+          process.stdout.write(`\x1b[2;1H`);
+
+          // Write sixel data directly to terminal
           process.stdout.write(data);
-          process.stdout.write("\n");
-          process.stdout.write(zmcdnInput.lastZMachineOutput);
-          process.stdout.write("\n[Press any key to continue...]");
 
-          // Wait for keypress - simple data event
-          await new Promise<void>((resolve) => {
-            const onData = () => {
-              process.stdin.removeListener('data', onData);
-              resolve();
-            };
-
-            process.stdin.setRawMode(true);
-            process.stdin.resume();
-            process.stdin.once('data', onData);
-          });
-
-          // Reset stdin to cooked mode
-          process.stdin.setRawMode(false);
-          process.stdin.pause();
-
-          // Small delay to ensure stdin settles
-          await new Promise(resolve => setTimeout(resolve, 50));
-
-          // Clear screen
-          process.stdout.write("\x1b[2J\x1b[H");
-
-          // Recreate blessed screen
-          this.initBlessedScreen();
-
-          // Restore window state
-          if (savedUpperWindowHeight > 0) {
-            this.splitWindow(savedUpperWindowHeight);
+          // Show cursor again
+          if (this.screen.program) {
+            this.screen.program.showCursor();
           }
 
-          // Restore content
-          if (this.lowerWindow && savedLowerContent) {
-            (this.lowerWindow as any).setContent(savedLowerContent);
-            (this.lowerWindow as any).setScrollPerc(100);
-          }
-          if (this.upperWindow && savedUpperContent) {
-            (this.upperWindow as any).setContent(savedUpperContent);
-          }
-
-          if (this.screen) {
-            (this.screen as any).render();
-          }
+          // Force blessed to redraw its content around the sixel
+          this.screen.render();
         } else {
           // Not in blessed mode, just dump to stdout
           process.stdout.write(data);
@@ -439,7 +442,7 @@ export class ZConsole implements ZMInputOutputDevice {
     await this.processZMCDNText();
 
     if (this.useBlessedMode && this.screen) {
-      // Use blessed input for line reading
+      // Use blessed input for line reading in the dedicated input box
       return new Promise<string>((resolve, reject) => {
         if (!this.screen) {
           reject(new Error("Blessed screen not initialized"));
@@ -452,28 +455,50 @@ export class ZConsole implements ZMInputOutputDevice {
           targetWindow.setScrollPerc(100);
         }
 
-        const input = blessed.textbox({
-          parent: this.screen,  // Attach to screen, not window
-          bottom: 0,
-          left: 0,
-          height: 1,
-          width: '100%',
-          inputOnFocus: true,
-          keys: true,
-          style: {
-            fg: 'white',
-            bg: 'black'
-          }
-        });
+        // Manually handle input to avoid cursor bleed
+        let inputValue = '';
 
-        input.on('submit', (value: string) => {
-          input.destroy();
-          this.screen?.render();
-          resolve(value || '');
-        });
-
-        input.focus();
+        // Show initial prompt
+        if (this.inputBox) {
+          this.inputBox.setContent('> ');
+        }
         this.screen.render();
+
+        const onKey = (_ch: any, key: any) => {
+          if (!key || !this.screen || !this.inputBox) return;
+
+          if (key.name === 'enter' || key.name === 'return') {
+            // Submit
+            this.screen.unkey(['keypress'], onKey);
+            this.inputBox.setContent('');
+            this.screen.render();
+            resolve(inputValue);
+            return;
+          }
+
+          if (key.name === 'backspace' || key.name === 'delete') {
+            // Delete character
+            if (inputValue.length > 0) {
+              inputValue = inputValue.slice(0, -1);
+            }
+          } else if (key.name === 'escape') {
+            // Cancel (treat as empty input)
+            this.screen.unkey(['keypress'], onKey);
+            this.inputBox.setContent('');
+            this.screen.render();
+            resolve('');
+            return;
+          } else if (key.full && key.full.length === 1) {
+            // Regular character
+            inputValue += key.full;
+          }
+
+          // Update display
+          this.inputBox.setContent(`> ${inputValue}`);
+          this.screen.render();
+        };
+
+        this.screen.on('keypress', onKey);
       });
     }
 
