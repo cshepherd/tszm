@@ -1,4 +1,7 @@
 import * as esbuild from 'esbuild';
+import { chmodSync } from 'fs';
+
+const outfile = 'dist/tszm';
 
 await esbuild.build({
   entryPoints: ['tszm.ts'],
@@ -15,4 +18,5 @@ await esbuild.build({
   external: [],
 });
 
-console.log('Build complete!');
+chmodSync(outfile, 0o755); // equivalent to `chmod +x dist/tszm`
+console.log(`Build complete: ${outfile} is now executable.`);

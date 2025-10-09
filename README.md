@@ -8,6 +8,19 @@
 - Support for the upcoming ZMCDN AI/LLM based enhancements for Interactive Fiction
 - Compatibility with z1-z4 (except text-windowing, graphics, sound)
 
+## Building
+
+**Prerequisites**
+- Node.js 22
+- nvm
+
+```bash
+cd tszm
+nvm use
+npm i
+npm run build.mjs
+```
+
 ## Current Status
 05-Oct-2025: "Naive" ZMCDN image generation works. We ship raw scene information off to gpt-image-1 and get an image to display in sixel format. For a demo, run this in [iTerm2](https://iterm2.com) or other sixel-compatible terminal:
 `curl https://cshepherd.fr/sample2.txt`
