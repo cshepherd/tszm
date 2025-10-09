@@ -184,54 +184,64 @@ export class ZConsole implements ZMInputOutputDevice {
     });
   }
 
-  private fetchURL(url: string): Promise<string> {
+  private fetchURL(urlStr: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      http
-        .get(url, (res) => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}`));
-            res.resume();
-            return;
-          }
+      const urlObj = new URL(urlStr);
+      const client = ZConsole.getHttpModule(urlObj); // http or https based on protocol
 
-          let data = "";
-          res.setEncoding("utf8");
-          res.on("data", (chunk) => {
-            data += chunk;
-          });
-          res.on("end", () => resolve(data));
-        })
-        .on("error", reject);
+      const req = client.get(urlObj, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status !== 200) {
+          res.resume(); // drain to free socket
+          reject(new Error(`HTTP ${status}`));
+          return;
+        }
+
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => resolve(data));
+      });
+
+      req.on("error", reject);
     });
   }
 
   private postGenerate(gameId: string, text: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const postData = JSON.stringify({
-        gameID: gameId,
-        text: text,
-      });
+      if (!this.zmcdnServer) {
+        return reject(new Error("ZMCDN not configured"));
+      }
 
-      const url = new URL(`${this.zmcdnServer}/generate`);
-      const options = {
-        hostname: url.hostname,
-        port: url.port || (url.protocol === "https:" ? 443 : 80),
-        path: url.pathname,
+      const postData = JSON.stringify({ gameID: gameId, text });
+      const urlObj = new URL(`${this.zmcdnServer}/generate`);
+      const client = ZConsole.getHttpModule(urlObj);
+
+      const options: http.RequestOptions = {
+        protocol: urlObj.protocol,
+        hostname: urlObj.hostname,
+        port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
+        path: `${urlObj.pathname}${urlObj.search}`, // keep any ?query=params
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(postData),
         },
+        auth: urlObj.username
+          ? `${decodeURIComponent(urlObj.username)}:${decodeURIComponent(urlObj.password)}`
+          : undefined,
       };
 
-      const req = http.request(options, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          res.resume();
+      const req = client.request(options, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 400) {
+          res.resume(); // drain to free socket
+          reject(new Error(`HTTP ${status}`));
           return;
         }
-        res.resume();
-        resolve();
+        // fully drain before resolving
+        res.on("data", () => {});
+        res.on("end", () => resolve());
       });
 
       req.on("error", reject);
