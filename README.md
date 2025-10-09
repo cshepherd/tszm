@@ -6,7 +6,7 @@
 
 - Abstractable input/output permitting the engine to be used in a variety of environments (console, web, others)
 - Support for the upcoming ZMCDN AI/LLM based enhancements for Interactive Fiction
-- Compatibility with z1-z6 (except text-windowing, graphics, sound)
+- Compatibility with z1-z4 (except text-windowing, graphics, sound)
 
 ## Current Status
 05-Oct-2025: "Naive" ZMCDN image generation works. We ship raw scene information off to gpt-image-1 and get an image to display in sixel format. For a demo, run this in [iTerm2](https://iterm2.com) or other sixel-compatible terminal:
@@ -33,3 +33,6 @@ We're squashing a couple bugs and upgrading compatibility to .z4 next, but there
 - @chad3814 (readline sanity, code review, some tooling)
 - @clambertus (CI action for coverage reporting)
 - Design credit: Jay Craft once asked what it'd look like if we hooked an image generation AI up to a ZMachine, so I generally blame him for this
+
+## Sponsors
+This was made possible in part by a generous community contribution from Table 2 Consulting LLC.
