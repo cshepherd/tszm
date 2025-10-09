@@ -4,6 +4,7 @@ import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "./ZMachine";
 import * as crypto from "crypto";
 import * as http from "http";
+import * as https from "https";
 
 interface Key {
   ctrl: boolean;
@@ -20,11 +21,40 @@ export class ZConsole implements ZMInputOutputDevice {
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
 
-  constructor(zmcdnServer: string | undefined) {
-    this.zmcdnServer = zmcdnServer;
-    if (this.zmcdnServer) {
-      this.zmcdnEnabled = true;
+  private static getHttpModule(url: URL) {
+    return url.protocol === "https:" ? https : http;
+  }
+
+  private static normalizeZmcdnUrl(raw?: string): string | undefined {
+    if (!raw) return undefined;
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+    try {
+      const u = new URL(withScheme);
+      // optional cleanups
+      u.hash = "";
+      const s = u.toString().replace(/\/+$/, ""); // strip trailing slash(es)
+      return s;
+    } catch {
+      // Malformed; caller can decide to disable the feature.
+      return undefined;
     }
+  }
+
+  constructor(zmcdnServer: string | undefined) {
+    const normalized = ZConsole.normalizeZmcdnUrl(zmcdnServer);
+
+    if (normalized) {
+      this.zmcdnServer = normalized;
+      this.zmcdnEnabled = true;
+    } else {
+      console.warn(`Ignoring invalid --zmcdn value: ${String(zmcdnServer)}`);
+      this.zmcdnEnabled = false;
+    }
+
     this.rl = createInterface({
       input: process.stdin,
       output: process.stdout,
