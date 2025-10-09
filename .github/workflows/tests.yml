@@ -1,0 +1,98 @@
+name: Node CI (Jest)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test -- --ci --coverage
+
+      - name: Upload coverage report
+        if: ${{ !env.ACT }} # skip when running under act
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.node-version }}
+          path: |
+            coverage
+            junit.xml
+          if-no-files-found: ignore
+
+      - name: Summarize coverage in job summary
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "coverage/coverage-summary.json not found; skipping summary" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const s = require('./coverage/coverage-summary.json');
+          const t = s.total;
+          const line = (k) => `- ${k}: ${t[k].pct}% (${t[k].covered}/${t[k].total})`;
+          console.log('### Coverage summary');
+          console.log(line('statements'));
+          console.log(line('branches'));
+          console.log(line('functions'));
+          console.log(line('lines'));
+          NODE
+          
+      - name: Stage Pages content under /coverage
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
+        run: |
+          rm -rf site
+          mkdir -p site/coverage
+          cp -r coverage/lcov-report/* site/coverage/
+          cat > site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8">
+          <title>Coverage</title>
+          <meta http-equiv="refresh" content="0; url=coverage/">
+          <a href="coverage/">Open coverage report</a>
+          HTML
+
+      - name: Upload Pages artifact (coverage site)
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy coverage to GitHub Pages
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
+        uses: actions/deploy-pages@v4
+
+      - name: Add coverage link to summary
+        if: ${{ !env.ACT && matrix.node-version == '20.x' }}
+        run: |
+          echo "### Coverage site" >> "$GITHUB_STEP_SUMMARY"
+          echo "Browse: https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/coverage/" >> "$GITHUB_STEP_SUMMARY"
