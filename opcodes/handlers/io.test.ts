@@ -466,15 +466,69 @@ describe("I/O Handlers", () => {
   });
 
   describe("h_erase_window", () => {
+    it("should clear entire screen for window -1", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_erase_window(vm, [65535]); // -1 as unsigned
+
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[2J\x1b[H");
+    });
+
+    it("should clear entire screen for window 2", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_erase_window(vm, [2]);
+
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[2J\x1b[H");
+    });
+
+    it("should clear lower window (window 0)", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_erase_window(vm, [0]);
+
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[J");
+    });
+
+    it("should clear upper window (window 1)", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_erase_window(vm, [1]);
+
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[K");
+    });
+
     it("should log when trace is enabled", () => {
-      const vm = { trace: true };
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: true };
       const consoleSpy = jest.spyOn(console, "log").mockImplementation();
 
       h_erase_window(vm, [1]);
 
-      expect(consoleSpy).toHaveBeenCalledWith("@erase_window 1 (no-op)");
+      expect(consoleSpy).toHaveBeenCalledWith("@erase_window 1");
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[K");
 
       consoleSpy.mockRestore();
+    });
+
+    it("should handle missing input device gracefully", () => {
+      const vm = { inputOutputDevice: null, trace: false };
+
+      expect(() => h_erase_window(vm, [1])).not.toThrow();
     });
   });
 
@@ -492,15 +546,36 @@ describe("I/O Handlers", () => {
   });
 
   describe("h_set_cursor", () => {
+    it("should emit VT100 cursor positioning sequence", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_set_cursor(vm, [5, 10]);
+
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[5;10H");
+    });
+
     it("should log when trace is enabled", () => {
-      const vm = { trace: true };
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: true };
       const consoleSpy = jest.spyOn(console, "log").mockImplementation();
 
       h_set_cursor(vm, [5, 10]);
 
-      expect(consoleSpy).toHaveBeenCalledWith("@set_cursor 5,10 (no-op)");
+      expect(consoleSpy).toHaveBeenCalledWith("@set_cursor 5,10");
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[5;10H");
 
       consoleSpy.mockRestore();
+    });
+
+    it("should handle missing input device gracefully", () => {
+      const vm = { inputOutputDevice: null, trace: false };
+
+      expect(() => h_set_cursor(vm, [5, 10])).not.toThrow();
     });
   });
 

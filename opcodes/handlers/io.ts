@@ -361,9 +361,26 @@ export function h_set_window(vm: any, [window]: number[]) {
 
 export function h_erase_window(vm: any, [window]: number[]) {
   // Erase window (v4+)
-  // Currently no-op
+  // window: -1 or 2 = clear entire screen, 0 = lower window, 1 = upper window
   if (vm.trace) {
-    console.log(`@erase_window ${window} (no-op)`);
+    console.log(`@erase_window ${window}`);
+  }
+
+  if (vm.inputOutputDevice) {
+    // Convert window to signed value (window can be -1)
+    const signedWindow = window > 32767 ? window - 65536 : window;
+
+    if (signedWindow === -1 || signedWindow === 2) {
+      // Clear entire screen: ESC[2J and move cursor to home: ESC[H
+      vm.inputOutputDevice.writeString("\x1b[2J\x1b[H");
+    } else if (signedWindow === 0) {
+      // Clear lower window - for now just clear from cursor to end of screen
+      vm.inputOutputDevice.writeString("\x1b[J");
+    } else if (signedWindow === 1) {
+      // Clear upper window - more complex in a split screen setup
+      // For now, just clear from cursor to end of line
+      vm.inputOutputDevice.writeString("\x1b[K");
+    }
   }
 }
 
@@ -377,9 +394,14 @@ export function h_erase_line(vm: any, [value]: number[]) {
 
 export function h_set_cursor(vm: any, [line, column]: number[]) {
   // Set cursor position (v4+)
-  // Currently no-op
+  // Emit VT100 cursor positioning sequence: ESC[{line};{column}H
   if (vm.trace) {
-    console.log(`@set_cursor ${line},${column} (no-op)`);
+    console.log(`@set_cursor ${line},${column}`);
+  }
+
+  if (vm.inputOutputDevice) {
+    const vt100Sequence = `\x1b[${line};${column}H`;
+    vm.inputOutputDevice.writeString(vt100Sequence);
   }
 }
 
