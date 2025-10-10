@@ -7,7 +7,7 @@ await esbuild.build({
   entryPoints: ['tszm.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node18',
+  target: 'node22',
   format: 'cjs',
   outfile: 'dist/tszm',
   minify: true,

@@ -4,6 +4,7 @@ import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "./ZMachine";
 import * as crypto from "crypto";
 import * as http from "http";
+import * as https from "https";
 
 interface Key {
   ctrl: boolean;
@@ -16,16 +17,68 @@ export class ZConsole implements ZMInputOutputDevice {
   private ZMCDNText: string = "";
   private zm: ZMachine | null = null;
   private zmcdnEnabled: boolean = false;
-  private zmcdnServer: string | undefined = "";
+  private zmcdnServer: string | undefined;
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
   private lastzmcdnInput: ZMCDNInput | null = null;
 
-  constructor(zmcdnServer: string | undefined) {
-    this.zmcdnServer = zmcdnServer;
-    if (this.zmcdnServer) {
-      this.zmcdnEnabled = true;
+  // set our protocol for future https update
+  private static getHttpModule(url: URL) {
+    return url.protocol === "https:" ? https : http;
+  }
+
+  private static normalizeZmcdnUrl(raw?: string): string | undefined {
+    if (!raw) return undefined;
+    let s = raw.trim();
+    if (!s) return undefined;
+
+    // fix common "missing colon" typos: https//host or http//host
+    //    e.g., "https//foo" -> "https://foo"
+    s = s.replace(/^(https?)(\/\/)(?!\/)/i, (_m, proto: string) => `${proto}://`);
+
+    // reject non http/https protocols
+    if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(s) && !/^https?:\/\//i.test(s)) {
+      return undefined;
     }
+
+    // catch some typical typos
+    if (/^\/\//.test(s)) {
+      s = `http:${s}`;
+    }
+
+    // default to http
+    if (!/^https?:\/\//i.test(s)) {
+      s = `http://${s}`;
+    }
+
+    // 5) Parse and normalize
+    try {
+      const u = new URL(s);
+
+      // Guard against double-scheme accidents like "http://https//host"
+      if (/^https?:$/.test(u.protocol) && /^https?\/\//i.test(u.hostname)) {
+        return undefined;
+      }
+
+      u.hash = ""; // drop fragments
+      return u.toString().replace(/\/+$/, ""); // strip trailing slash(es)
+    } catch {
+      return undefined;
+    }
+  }
+
+  constructor(zmcdnServer: string | undefined) {
+    const normalized = ZConsole.normalizeZmcdnUrl(zmcdnServer);
+
+    if (normalized) {
+      this.zmcdnServer = normalized;
+      this.zmcdnEnabled = true;
+    } else if (typeof zmcdnServer === "string" && zmcdnServer.trim() !== "") {
+      // warn only if value is provided and malformed
+      console.warn(`Ignoring invalid --zmcdn value: ${String(zmcdnServer)}`);
+      this.zmcdnEnabled = false;
+    }
+
     this.rl = createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -90,22 +143,29 @@ export class ZConsole implements ZMInputOutputDevice {
     return Promise.resolve();
   }
 
-  private postJSON(url: string, data: any): Promise<string> {
+  private postJSON(urlStr: string, data: unknown): Promise<string> {
     return new Promise((resolve, reject) => {
       const postData = JSON.stringify(data);
-      const urlObj = new URL(url);
-      const options = {
+      const urlObj = new URL(urlStr); // assume caller passed normalized base + path
+      const client = ZConsole.getHttpModule(urlObj);
+
+      const options: http.RequestOptions = {
+        protocol: urlObj.protocol,
         hostname: urlObj.hostname,
         port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
-        path: urlObj.pathname,
+        path: `${urlObj.pathname}${urlObj.search}`, // keep any ?query=params
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(postData),
         },
+        // If URL includes user:pass, pass it through for basic auth:
+        auth: urlObj.username
+          ? `${decodeURIComponent(urlObj.username)}:${decodeURIComponent(urlObj.password)}`
+          : undefined,
       };
 
-      const req = http.request(options, (res) => {
+      const req = client.request(options, (res) => {
         let responseData = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => {
@@ -127,54 +187,64 @@ export class ZConsole implements ZMInputOutputDevice {
     });
   }
 
-  private fetchURL(url: string): Promise<string> {
+  private fetchURL(urlStr: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      http
-        .get(url, (res) => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}`));
-            res.resume();
-            return;
-          }
+      const urlObj = new URL(urlStr);
+      const client = ZConsole.getHttpModule(urlObj); // http or https based on protocol
 
-          let data = "";
-          res.setEncoding("utf8");
-          res.on("data", (chunk) => {
-            data += chunk;
-          });
-          res.on("end", () => resolve(data));
-        })
-        .on("error", reject);
+      const req = client.get(urlObj, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status !== 200) {
+          res.resume(); // drain to free socket
+          reject(new Error(`HTTP ${status}`));
+          return;
+        }
+
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => resolve(data));
+      });
+
+      req.on("error", reject);
     });
   }
 
   private postGenerate(gameId: string, text: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const postData = JSON.stringify({
-        gameID: gameId,
-        text: text,
-      });
+      if (!this.zmcdnServer) {
+        return reject(new Error("ZMCDN not configured"));
+      }
 
-      const url = new URL(`${this.zmcdnServer}/generate`);
-      const options = {
-        hostname: url.hostname,
-        port: url.port || (url.protocol === "https:" ? 443 : 80),
-        path: url.pathname,
+      const postData = JSON.stringify({ gameID: gameId, text });
+      const urlObj = new URL(`${this.zmcdnServer}/generate`);
+      const client = ZConsole.getHttpModule(urlObj);
+
+      const options: http.RequestOptions = {
+        protocol: urlObj.protocol,
+        hostname: urlObj.hostname,
+        port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
+        path: `${urlObj.pathname}${urlObj.search}`, // keep any ?query=params
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(postData),
         },
+        auth: urlObj.username
+          ? `${decodeURIComponent(urlObj.username)}:${decodeURIComponent(urlObj.password)}`
+          : undefined,
       };
 
-      const req = http.request(options, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          res.resume();
+      const req = client.request(options, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 400) {
+          res.resume(); // drain to free socket
+          reject(new Error(`HTTP ${status}`));
           return;
         }
-        res.resume();
-        resolve();
+        // fully drain before resolving
+        res.on("data", () => {});
+        res.on("end", () => resolve());
       });
 
       req.on("error", reject);
@@ -346,6 +416,9 @@ export class ZConsole implements ZMInputOutputDevice {
   close(): void {
     this.rl.close();
   }
+
+  get isZmcdnEnabled() { return this.zmcdnEnabled; }
+  get zmcdnServerUrl() { return this.zmcdnServer; }
 
   private rl: Interface;
 }

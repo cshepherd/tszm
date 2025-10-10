@@ -1,0 +1,53 @@
+name: Nightly build (release)
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to create/update releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: node build.mjs
+
+      - name: Package (preserve +x)
+        run: |
+          mkdir -p out
+          cp dist/tszm out/tszm
+          tar -C out -czf tszm-nightly-${{ github.run_number }}.tar.gz tszm
+          echo "sha256: $(sha256sum tszm-nightly-${{ github.run_number }}.tar.gz | cut -d' ' -f1)" | tee SHA256SUMS
+
+      - name: Create/Update nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly build
+          prerelease: true
+          draft: false
+          body: |
+            Automated nightly build.
+            - Commit: ${{ github.sha }}
+            - Run: ${{ github.run_id }}
+          files: |
+            tszm-nightly-${{ github.run_number }}.tar.gz
+            SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
