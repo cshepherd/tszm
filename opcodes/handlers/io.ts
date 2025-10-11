@@ -259,6 +259,12 @@ export async function h_sread(vm: any, operands: number[]) {
     return;
   }
 
+  // For v1-3 games, update the status line before reading input
+  if (vm.header.version <= 3) {
+    const { h_show_status } = require("./misc");
+    h_show_status(vm);
+  }
+
   const textBufferAddr = operands[0];
   const parseBufferAddr = operands[1];
 
@@ -343,19 +349,59 @@ export function h_print_table(vm: any, operands: number[]) {
 
 export function h_split_window(vm: any, [lines]: number[]) {
   // Split window (v3+)
-  // lines = number of lines for upper window
-  // Currently no-op
+  // lines = number of lines for upper window (status area)
   if (vm.trace) {
-    console.log(`@split_window ${lines} (no-op)`);
+    console.log(`@split_window ${lines}`);
+  }
+
+  if (vm.inputOutputDevice) {
+    // Get terminal height (default to 24 if not available)
+    const termHeight = vm.terminalHeight || 24;
+    const scrollBottom = termHeight - 1; // Reserve last line for input
+
+    // Store the split window size in VM for reference
+    if (!vm.splitWindowLines) {
+      vm.splitWindowLines = 0;
+    }
+    vm.splitWindowLines = lines;
+
+    if (lines === 0) {
+      // No split - reset to normal scrolling (full screen minus 1 for input)
+      vm.inputOutputDevice.writeString(`\x1b[1;${scrollBottom}r`);
+    } else {
+      // Set up scrolling region with status at top and input at bottom
+      // - Status: line 1 to 'lines'
+      // - Scrolling: line 'lines+1' to line (termHeight-1)
+      // - Input: line termHeight
+      const scrollTop = lines + 1;
+      vm.inputOutputDevice.writeString(`\x1b[${scrollTop};${scrollBottom}r`);
+
+      // Move cursor to the start of the scrolling region
+      vm.inputOutputDevice.writeString(`\x1b[${scrollTop};1H`);
+    }
   }
 }
 
 export function h_set_window(vm: any, [window]: number[]) {
   // Set current window (v3+)
-  // window = 0 (lower) or 1 (upper)
-  // Currently no-op
+  // window = 0 (lower/main scrolling window) or 1 (upper/status window)
   if (vm.trace) {
-    console.log(`@set_window ${window} (no-op)`);
+    console.log(`@set_window ${window}`);
+  }
+
+  if (vm.inputOutputDevice) {
+    vm.currentWindow = window;
+
+    if (window === 1) {
+      // Upper window (status) - position cursor at top
+      vm.inputOutputDevice.writeString("\x1b[1;1H");
+    } else {
+      // Lower window (main scrolling area) - position after status lines
+      const scrollTop = (vm.splitWindowLines || 0) + 1;
+      // For v3 games with no split, position at line 1 (scrolling region is 1-23)
+      const line = vm.splitWindowLines === 0 ? 1 : scrollTop;
+      vm.inputOutputDevice.writeString(`\x1b[${line};1H`);
+    }
   }
 }
 

@@ -429,39 +429,111 @@ describe("I/O Handlers", () => {
   });
 
   describe("h_split_window", () => {
+    it("should set scrolling region with status lines", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm: any = { inputOutputDevice: mockDevice, trace: false };
+
+      h_split_window(vm, [2]); // 2 line status area
+
+      // Should set scrolling region from line 3 to 23 (line 24 for input) and move cursor
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[3;23r");
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[3;1H");
+      expect(vm.splitWindowLines).toBe(2);
+    });
+
+    it("should reset scrolling region when lines is 0", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm: any = { inputOutputDevice: mockDevice, trace: false, splitWindowLines: 2 };
+
+      h_split_window(vm, [0]);
+
+      // Should set scrolling to 1-23 (line 24 reserved for input)
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[1;23r");
+      expect(vm.splitWindowLines).toBe(0);
+    });
+
     it("should log when trace is enabled", () => {
-      const vm = { trace: true };
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: true };
       const consoleSpy = jest.spyOn(console, "log").mockImplementation();
 
-      h_split_window(vm, [10]);
+      h_split_window(vm, [1]);
 
-      expect(consoleSpy).toHaveBeenCalledWith("@split_window 10 (no-op)");
+      expect(consoleSpy).toHaveBeenCalledWith("@split_window 1");
 
       consoleSpy.mockRestore();
     });
 
-    it("should not log when trace is disabled", () => {
-      const vm = { trace: false };
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it("should handle missing input device gracefully", () => {
+      const vm = { inputOutputDevice: null, trace: false };
 
-      h_split_window(vm, [10]);
-
-      expect(consoleSpy).not.toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
+      expect(() => h_split_window(vm, [2])).not.toThrow();
     });
   });
 
   describe("h_set_window", () => {
+    it("should switch to upper window (status)", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm: any = { inputOutputDevice: mockDevice, trace: false, splitWindowLines: 2 };
+
+      h_set_window(vm, [1]);
+
+      // Should move cursor to top left (status area)
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[1;1H");
+      expect(vm.currentWindow).toBe(1);
+    });
+
+    it("should switch to lower window (scrolling)", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm: any = { inputOutputDevice: mockDevice, trace: false, splitWindowLines: 2 };
+
+      h_set_window(vm, [0]);
+
+      // Should move cursor to start of scrolling region (line 3)
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[3;1H");
+      expect(vm.currentWindow).toBe(0);
+    });
+
+    it("should handle lower window with no split", () => {
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: false };
+
+      h_set_window(vm, [0]);
+
+      // Should move to line 1 when no split
+      expect(mockDevice.writeString).toHaveBeenCalledWith("\x1b[1;1H");
+    });
+
     it("should log when trace is enabled", () => {
-      const vm = { trace: true };
+      const mockDevice = {
+        writeString: jest.fn(),
+      };
+      const vm = { inputOutputDevice: mockDevice, trace: true };
       const consoleSpy = jest.spyOn(console, "log").mockImplementation();
 
       h_set_window(vm, [0]);
 
-      expect(consoleSpy).toHaveBeenCalledWith("@set_window 0 (no-op)");
+      expect(consoleSpy).toHaveBeenCalledWith("@set_window 0");
 
       consoleSpy.mockRestore();
+    });
+
+    it("should handle missing input device gracefully", () => {
+      const vm = { inputOutputDevice: null, trace: false };
+
+      expect(() => h_set_window(vm, [0])).not.toThrow();
     });
   });
 

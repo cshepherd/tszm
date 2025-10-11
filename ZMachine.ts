@@ -57,6 +57,27 @@ class ZMachine {
       }
     }
 
+    // Initialize scrolling region for Z3 games
+    // Get terminal height (default to 24 if not available)
+    const termHeight = process.stdout.rows || 24;
+    const scrollBottom = termHeight - 1; // Reserve last line for input
+
+    if (this.inputOutputDevice && this.header) {
+      // Store terminal height on VM for use by other handlers
+      (this as any).terminalHeight = termHeight;
+
+      if (this.header.version <= 3) {
+        // Z3 games: reserve line 1 for status, lines 2-(height-1) for scrolling, last line for input
+        this.inputOutputDevice.writeString(`\x1b[2;${scrollBottom}r`);
+        // Position cursor at line 2 (start of scrolling region)
+        this.inputOutputDevice.writeString("\x1b[2;1H");
+      } else {
+        // V4+ games will call split_window themselves
+        // Just set default scrolling region (1-(height-1), reserving last line for input)
+        this.inputOutputDevice.writeString(`\x1b[1;${scrollBottom}r`);
+      }
+    }
+
     // init pc to first instruction in high memory + offset from header
     const version = this.header?.version || 1;
 
