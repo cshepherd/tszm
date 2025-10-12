@@ -1,5 +1,4 @@
 import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
-import { readFile } from "fs/promises";
 import { decodeNext } from "./opcodes/decode";
 import { ExecCtx } from "./opcodes/types";
 
@@ -51,8 +50,11 @@ class ZMachine {
   }
 
   async load() {
-    if(this.runtime == 'node')
+    if(this.runtime == 'node') {
+      // Dynamically import fs/promises only in Node.js environment
+      const { readFile } = await import('fs/promises');
       this.memory = await readFile(this.filePath);
+    }
     if(this.runtime == 'browser') {
       const res = await fetch(this.filePath);
       const arrayBuffer = await res.arrayBuffer();
