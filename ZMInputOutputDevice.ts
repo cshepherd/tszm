@@ -6,4 +6,4 @@ interface ZMInputOutputDevice {
   close(): void;
 }
 
-export { ZMInputOutputDevice };
+export type { ZMInputOutputDevice };
