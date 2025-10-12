@@ -33,14 +33,34 @@ class ZMachine {
   private trace: boolean = false; // Enable debug logging
   private playerObjectNumber: number = 0; // Player object number
   private lastRead: string = ""; // Last command entered (to help find player object)
+  private runtime: string = "unknown"; // node / react / react-native
 
   constructor(
     private filePath: string,
     private inputOutputDevice: ZMInputOutputDevice | null,
-  ) {}
+  ) {
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      this.runtime = 'browser';
+    }
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      this.runtime = 'node';
+    }
+    if( this.runtime == 'unknown' )
+      if(typeof navigator !== 'undefined' && navigator.product == 'ReactNative')
+        this.runtime = 'react-native';
+  }
 
   async load() {
-    this.memory = await readFile(this.filePath);
+    if(this.runtime == 'node')
+      this.memory = await readFile(this.filePath);
+    if(this.runtime == 'browser') {
+      const res = await fetch(this.filePath);
+      const arrayBuffer = await res.arrayBuffer();
+      this.memory = Buffer.from(arrayBuffer);
+    }
+    if(!this.memory) {
+      throw new Error("No data loaded.");
+    }
     this.parseHeader(this.memory);
 
     // Set screen dimensions in header (required by many games)
