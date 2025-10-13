@@ -44,18 +44,18 @@ class ZMachine {
     if (typeof process !== 'undefined' && process.versions?.node) {
       this.runtime = 'node';
     }
-    if( this.runtime == 'unknown' )
-      if(typeof navigator !== 'undefined' && navigator.product == 'ReactNative')
+    if( this.runtime === 'unknown' )
+      if(typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
         this.runtime = 'react-native';
   }
 
   async load() {
-    if(this.runtime == 'node') {
+    if(this.runtime === 'node') {
       // Dynamically import fs/promises only in Node.js environment
       const { readFile } = await import('fs/promises');
       this.memory = await readFile(this.filePath);
     }
-    if(this.runtime == 'browser') {
+    if(this.runtime === 'browser') {
       const res = await fetch(this.filePath);
       const arrayBuffer = await res.arrayBuffer();
       this.memory = Buffer.from(arrayBuffer);
@@ -185,7 +185,7 @@ class ZMachine {
 
   getVariableValue(variableNumber: number): any {
     // Variable 0: SP
-    if (variableNumber == 0) {
+    if (variableNumber === 0) {
       return this.stack.pop();
     }
     if (variableNumber < 16) {
@@ -199,7 +199,7 @@ class ZMachine {
 
   setVariableValue(variableNumber: number, value: number): any {
     // Variable 0: SP
-    if (variableNumber == 0) {
+    if (variableNumber === 0) {
       // Z-Machine values are 16-bit, mask before pushing to stack
       return this.stack.push(value & 0xffff);
     }
@@ -578,7 +578,6 @@ class ZMachine {
     }
 
     do {
-      const wordAddr = this.pc;
       const firstByte = this.memory.readUInt8(this.pc);
       const secondByte = this.memory.readUInt8(this.pc + 1);
       this.advancePC(2);
@@ -658,7 +657,7 @@ class ZMachine {
         }
 
         // Handle special z-characters
-        if (zchar == 0) {
+        if (zchar === 0) {
           result += " ";
           continue;
         }
@@ -675,21 +674,21 @@ class ZMachine {
           }
         }
 
-        if (zchar == 4) {
+        if (zchar === 4) {
           // Shift to A1 (uppercase) for one character
           oneShift = currentTable; // Save current alphabet
           currentTable = 1;
           continue;
         }
 
-        if (zchar == 5) {
+        if (zchar === 5) {
           // Shift to A2 (punctuation) for one character
           oneShift = currentTable; // Save current alphabet
           currentTable = 2;
           continue;
         }
 
-        if (zchar == 6 && currentTable == 2) {
+        if (zchar === 6 && currentTable === 2) {
           // Special case: z-char 6 in A2 means ZSCII escape
           // Next two z-chars form a 10-bit ZSCII character code
           if (this.trace) {

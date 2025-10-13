@@ -209,7 +209,6 @@ function tokenize(vm: any, textBufferAddr: number, parseBufferAddr: number) {
       const entryAddr = firstEntryAddr + j * entryLength;
       const entry1 = vm.memory.readUInt16BE(entryAddr);
       const entry2 = vm.memory.readUInt16BE(entryAddr + 2);
-      const entry3 = vm.memory.readUInt16BE(entryAddr + 4);
 
       // In v3, always compare 2 words (dictionary entries are fixed at 2 words)
       if (entry1 === encodedWord[0] && entry2 === encodedWord[1]) {
