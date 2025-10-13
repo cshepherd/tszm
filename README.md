@@ -31,7 +31,7 @@ npm run build.mjs
 
 09-Oct-2025: Improving Unit Test coverage, but meanwhile ZMCDN is more complete and caches almost everything. When we don't get everything quite right though, you can `/redraw` and force ZMCDN to invalidate its cache and try again.
 
-Public zmcdn server is at zmcdn.ballmerpeak.org:3003
+Public zmcdn server is at `https://zmcdn.ballmerpeak.org:3003`
 
 <img width="806" height="520" alt="image" src="https://github.com/user-attachments/assets/309c4904-40f4-4d4e-b65d-d7cacb17d46b" />
 
