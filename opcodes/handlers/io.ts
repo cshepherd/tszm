@@ -460,7 +460,7 @@ export async function h_read_char(
   ctx.store?.(charCode);
 }
 
-export function h_save(
+export async function h_save(
   vm: any,
   _operands: number[],
   ctx: { branch?: (condition: boolean) => void },
@@ -472,25 +472,98 @@ export function h_save(
   const frameSize = 2 + savedLocalCount + (frameMarker === 1 ? 1 : 0) + 1; // marker + count + locals + optional store + return PC
   const returnPC = vm.callStack[vm.callStack.length - frameSize];
 
-  const saveData = vm.saveData(returnPC);
+  try {
+    const saveData = await vm.saveData(returnPC);
 
-  // Save game state (v1-3: 0OP, v4+: uses extended opcode with store)
-  // Currently no-op - just return success
-  if (vm.trace) {
-    console.log(`@save (no-op, returning success)`);
+    if (!saveData) {
+      if (vm.trace) {
+        console.log(`@save failed: could not generate save data`);
+      }
+      ctx.branch?.(false);
+      return;
+    }
+
+    // In Node.js environment, save to disk
+    if (vm.runtime === 'node') {
+      const { writeFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.quetzal';
+      await writeFile(savePath, saveData);
+
+      if (vm.trace) {
+        console.log(`@save: saved to ${savePath}`);
+      }
+      ctx.branch?.(true);
+    } else {
+      // In browser or other environments, just indicate success
+      // (could potentially trigger a download in the future)
+      if (vm.trace) {
+        console.log(`@save: generated save data (${saveData.length} bytes) but not persisting (non-node environment)`);
+      }
+      ctx.branch?.(true);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@save failed: ${error}`);
+    }
+    ctx.branch?.(false);
   }
-  ctx.branch?.(true);
 }
 
-export function h_restore(
+export async function h_restore(
   vm: any,
   _operands: number[],
   ctx: { branch?: (condition: boolean) => void },
 ) {
   // Restore game state (v1-3: 0OP, v4+: uses extended opcode with store)
-  // Currently no-op - just return success
-  if (vm.trace) {
-    console.log(`@restore (no-op, returning success)`);
+  try {
+    // In Node.js environment, load from disk
+    if (vm.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.quetzal';
+
+      try {
+        const saveData = await readFile(savePath);
+
+        if (vm.trace) {
+          console.log(`@restore: loaded from ${savePath} (${saveData.length} bytes)`);
+        }
+
+        const success = await vm.restoreFromSave(saveData);
+
+        if (success) {
+          if (vm.trace) {
+            console.log(`@restore: successfully restored game state`);
+          }
+          ctx.branch?.(true);
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: failed to restore game state`);
+          }
+          ctx.branch?.(false);
+        }
+      } catch (fileError: any) {
+        if (fileError.code === 'ENOENT') {
+          if (vm.trace) {
+            console.log(`@restore: save file not found at ${savePath}`);
+          }
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: error reading save file: ${fileError}`);
+          }
+        }
+        ctx.branch?.(false);
+      }
+    } else {
+      // In browser or other environments, not yet implemented
+      if (vm.trace) {
+        console.log(`@restore: not implemented for non-node environment`);
+      }
+      ctx.branch?.(false);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@restore failed: ${error}`);
+    }
+    ctx.branch?.(false);
   }
-  ctx.branch?.(true);
 }
