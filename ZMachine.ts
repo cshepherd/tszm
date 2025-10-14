@@ -125,14 +125,14 @@ class ZMachine {
     // Build frames from the call stack in "least recent first" order
     const stackData: number[] = [];
 
-    // For versions 1-5, we need a dummy frame first
+    // For versions 1-5, we need a dummy frame first with the user stack
+    // According to Quetzal spec: "For games which use the user stack (V1-5, V7-8),
+    // the first stack frame is a 'dummy' frame with both PC and flags zero.
+    // The evaluation stack for this frame holds the contents of the user stack."
+    let dummyFrameEvalStack: number[] = [];
     if (this.header.version <= 5 || this.header.version >= 7) {
-      // Dummy frame: return PC (3 bytes) = 0, flags = 0, store var = 0, args = 0, eval stack size (2 bytes) = 0
-      stackData.push(0, 0, 0); // Return PC (3 bytes)
-      stackData.push(0);        // Flags byte (pvvvv = 00000)
-      stackData.push(0);        // Store variable
-      stackData.push(0);        // Arguments supplied
-      stackData.push(0, 0);     // Evaluation stack size (2 bytes, big-endian) = 0
+      // The dummy frame's eval stack holds the current user stack (this.stack)
+      dummyFrameEvalStack = [...this.stack];
     }
 
     // Parse the callStack to reconstruct frames
@@ -147,6 +147,7 @@ class ZMachine {
     }> = [];
 
     let idx = 0;
+    let pendingReturnPC: number | undefined;  // Track returnPC that wasn't built into a frame
 
     while (idx < this.callStack.length) {
       const returnPC = this.callStack[idx];
@@ -154,6 +155,8 @@ class ZMachine {
 
       // Check if we've reached the end - remaining data belongs to current frame
       if (idx >= this.callStack.length) {
+        // Save this returnPC - it's the current frame's return address
+        pendingReturnPC = returnPC;
         break;
       }
 
@@ -245,14 +248,45 @@ class ZMachine {
       });
     }
 
-    // Current frame: has returnPC (from parameter pc), current locals, and current stack
-    frames.push({
-      returnPC: pc,
-      storeVar: undefined, // Current frame doesn't have a store var (it hasn't returned yet)
-      locals: this.localVariables,
-      evalStack: this.stack, // Current evaluation stack
-      argsMask: 0, // We don't track this currently
-    });
+    // Use the pending returnPC if we found one
+    let currentFrameReturnPC = pc;  // Default to current PC if no return address
+    if (pendingReturnPC !== undefined) {
+      currentFrameReturnPC = pendingReturnPC;
+    }
+
+    // Add current frame with current locals (if any) and the return PC
+    // NOTE: This frame represents where we'll return to, not where we currently are
+    // The current PC goes in IFhd, not in the frame's returnPC
+    if (frames.length > 0 || this.localVariables.length > 0) {
+      frames.push({
+        returnPC: currentFrameReturnPC,
+        storeVar: undefined,  // Current frame hasn't returned yet, so no store var
+        locals: this.localVariables,
+        evalStack: [],  // Empty because user stack is in dummy frame for V1-5
+        argsMask: 0,
+      });
+    }
+
+    // Write dummy frame first (if needed for V1-5, V7-8)
+    if (dummyFrameEvalStack.length > 0) {
+      // Dummy frame: returnPC=0, flags=0 (0 locals, no discard), storeVar=0, argsMask=0
+      stackData.push(0, 0, 0); // Return PC (3 bytes) = 0x000000
+      stackData.push(0); // Flags byte (pvvvv = 00000)
+      stackData.push(0); // Store variable
+      stackData.push(0); // Arguments supplied
+
+      // Evaluation stack size (2 bytes, big-endian) = user stack size
+      stackData.push((dummyFrameEvalStack.length >> 8) & 0xFF);
+      stackData.push(dummyFrameEvalStack.length & 0xFF);
+
+      // No local variables (localCount = 0)
+
+      // Evaluation stack contents = user stack
+      for (const stackVal of dummyFrameEvalStack) {
+        stackData.push((stackVal >> 8) & 0xFF);
+        stackData.push(stackVal & 0xFF);
+      }
+    }
 
     // Write frames to stackData in Quetzal format
     for (const frame of frames) {
@@ -328,8 +362,27 @@ class ZMachine {
     ifhdLength.writeUInt32BE(13, 0); // Fixed length: 13 bytes
     const ifhdChunk = Buffer.concat([ifhdType, ifhdLength, ifhdBuffer]);
 
-    // Combine all chunks into IFF file
-    const iffFile = Buffer.concat([ifhdChunk, cmemChunk, stksChunk]);
+    // Add padding to chunks if needed (IFF requires even-byte alignment)
+    const ifhdPadding = ifhdBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+    const cmemPadding = rleBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+    const stksPadding = stackBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+
+    // Combine all chunks with padding
+    const allChunks = Buffer.concat([
+      ifhdChunk, ifhdPadding,
+      cmemChunk, cmemPadding,
+      stksChunk, stksPadding
+    ]);
+
+    // Create FORM wrapper (required by Quetzal spec)
+    // FORM format: 'FORM' + size (4 bytes, big-endian) + 'IFZS' + chunks
+    const formType = Buffer.from('FORM', 'ascii'); // 4 bytes
+    const ifzsType = Buffer.from('IFZS', 'ascii'); // 4 bytes
+    const formSize = Buffer.alloc(4);
+    // Size includes IFZS (4 bytes) + all chunks with padding
+    formSize.writeUInt32BE(4 + allChunks.length, 0);
+
+    const iffFile = Buffer.concat([formType, formSize, ifzsType, allChunks]);
 
     return iffFile;
   }
@@ -358,6 +411,18 @@ class ZMachine {
     let cmemData: Buffer | null = null;
     let stksData: Buffer | null = null;
 
+    // Check for FORM wrapper (required by Quetzal spec, but support files without it for backwards compat)
+    if (saveData.length >= 12 && saveData.toString('ascii', 0, 4) === 'FORM') {
+      // Verify IFZS type
+      const formType = saveData.toString('ascii', 8, 12);
+      if (formType !== 'IFZS') {
+        console.error(`Invalid FORM type: expected IFZS, got ${formType}`);
+        return false;
+      }
+      // Skip FORM header (4 bytes) + size (4 bytes) + IFZS (4 bytes) = 12 bytes
+      offset = 12;
+    }
+
     while (offset < saveData.length) {
       // Read chunk type (4 bytes)
       if (offset + 8 > saveData.length) break;
@@ -373,6 +438,11 @@ class ZMachine {
       if (offset + chunkLength > saveData.length) break;
       const chunkData = saveData.subarray(offset, offset + chunkLength);
       offset += chunkLength;
+
+      // IFF chunks are padded to even byte boundaries
+      if (chunkLength % 2 === 1) {
+        offset += 1; // Skip padding byte
+      }
 
       // Store chunk data based on type
       if (chunkType === 'IFhd') {
@@ -431,16 +501,28 @@ class ZMachine {
     }
 
     // Restore memory by XORing decompressed data with clean memory
-    // The decompressedXor should contain exactly dynamicMemorySize bytes
     this.memory = Buffer.from(cleanMemory);
     const dynamicMemorySize = this.header.staticMemoryAddress;
 
-    // Verify we have the right amount of decompressed data
-    if (decompressedXor.length !== dynamicMemorySize) {
-      console.error(`Decompressed save data size (${decompressedXor.length}) does not match dynamic memory size (${dynamicMemorySize})`);
+    // Verify decompressed data size
+    if (decompressedXor.length > dynamicMemorySize) {
+      console.error(`Decompressed save data size (${decompressedXor.length}) is larger than dynamic memory size (${dynamicMemorySize})`);
       return false;
     }
 
+    // Some interpreters (like Frotz) optimize saves by omitting trailing zeros
+    // If the decompressed data is shorter, pad with zeros (meaning unchanged bytes)
+    if (decompressedXor.length < dynamicMemorySize) {
+      const paddingNeeded = dynamicMemorySize - decompressedXor.length;
+      if (this.trace) {
+        console.log(`CMem is ${decompressedXor.length} bytes, padding with ${paddingNeeded} zeros to reach ${dynamicMemorySize} bytes`);
+      }
+      for (let i = 0; i < paddingNeeded; i++) {
+        decompressedXor.push(0);
+      }
+    }
+
+    // Apply XOR to restore memory
     for (let idx = 0; idx < dynamicMemorySize; idx++) {
       const xorByte = decompressedXor[idx];
       const cleanByte = cleanMemory.readUInt8(idx);
@@ -519,10 +601,14 @@ class ZMachine {
       });
     }
 
-    // Skip the dummy frame if present (first frame with returnPC=0)
+    // Handle the dummy frame if present (first frame with returnPC=0)
+    // For V1-5 games, the dummy frame's eval stack contains the user stack
     let frameIdx = 0;
+    let userStack: number[] = [];
     if (frames.length > 0 && frames[0].returnPC === 0) {
-      frameIdx = 1; // Skip dummy frame
+      // Extract user stack from dummy frame
+      userStack = frames[0].evalStack;
+      frameIdx = 1; // Skip dummy frame when processing call frames
     }
 
     // Rebuild callStack from frames (all but the last frame)
@@ -554,16 +640,27 @@ class ZMachine {
       // In a full implementation, we'd need to interleave eval stacks somehow
     }
 
-    // Last frame is the current frame
+    // Last frame is the current frame (if any frames exist after dummy)
     if (frames.length > frameIdx) {
       const currentFrame = frames[frames.length - 1];
       this.localVariables = currentFrame.locals;
-      this.stack = currentFrame.evalStack;
-      this.pc = currentFrame.returnPC;
+      // For V1-5 games, use the user stack from the dummy frame
+      // Otherwise, use the current frame's eval stack
+      this.stack = userStack.length > 0 ? userStack : currentFrame.evalStack;
+
+      // IMPORTANT: Use PC from IFhd, not from the frame's returnPC!
+      // The frame's returnPC is where we'll return to when this routine exits.
+      // The current execution point is in IFhd.
+      this.pc = savedPC;
+
+      // Push the current frame's return PC back onto callStack for when we return
+      if (currentFrame.returnPC !== 0) {
+        this.callStack.push(currentFrame.returnPC);
+      }
     } else {
       // No frames, reset to initial state
       this.localVariables = [];
-      this.stack = [];
+      this.stack = userStack.length > 0 ? userStack : [];
       this.pc = savedPC;
     }
 
