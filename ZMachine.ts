@@ -65,15 +65,16 @@ class ZMachine {
         // Zero byte encountered: count the run of zeros
         let zeroCount = 0;
 
-        // Count consecutive zeros (max 255 at a time due to 8-bit length byte)
-        while (inputIdx < input.length && input.readUInt8(inputIdx) === 0 && zeroCount < 255) {
+        // Count consecutive zeros (max 256 at a time)
+        while (inputIdx < input.length && input.readUInt8(inputIdx) === 0 && zeroCount < 256) {
           zeroCount++;
           inputIdx++;
         }
 
-        // Write zero marker byte followed by length byte (count + 1)
+        // Write zero marker byte followed by length byte (count - 1)
+        // The length byte stores (count - 1), so 1 zero = 0x00, 256 zeros = 0xFF
         outputBuffer.push(0);
-        outputBuffer.push(zeroCount + 1);
+        outputBuffer.push(zeroCount - 1);
       }
     }
 
@@ -99,8 +100,10 @@ class ZMachine {
     }
 
     // Create a buffer to hold the XOR'd bytes
+    // According to Quetzal spec, only save dynamic memory (up to static memory base)
+    const dynamicMemorySize = this.header.staticMemoryAddress;
     const xorBuffer: number[] = [];
-    for(let idx = 0; idx < cleanMemory.length; idx++) {
+    for(let idx = 0; idx < dynamicMemorySize; idx++) {
       const cleanByte = cleanMemory.readUInt8(idx);
       const dirtyByte = this.memory.readUInt8(idx);
 
@@ -144,43 +147,70 @@ class ZMachine {
     }> = [];
 
     let idx = 0;
+
     while (idx < this.callStack.length) {
       const returnPC = this.callStack[idx];
       idx++;
 
-      // Check if next value could be frame marker (looking ahead to find it)
-      // We need to find the frameMarker to know the structure
+      // Check if we've reached the end - remaining data belongs to current frame
+      if (idx >= this.callStack.length) {
+        break;
+      }
+
+      // Frame structure: returnPC, [storeVar], local1..N, localCount, frameMarker
+      // We scan ahead more carefully, checking all possible frame marker positions
       let frameMarker = 0;
       let localCount = 0;
       let storeVar: number | undefined;
-
-      // Scan ahead to find localCount and frameMarker
-      // Structure: returnPC, [storeVar], local1..N, localCount, frameMarker
-      // We scan from current position to find frameMarker pattern
-      let scanIdx = idx;
       let foundFrame = false;
 
-      while (scanIdx < this.callStack.length - 1) {
+      // Try to find frame boundaries by scanning for (localCount, frameMarker) pairs
+      // Frame marker is always 0 or 1, and localCount is typically 0-15
+      // IMPORTANT: We prefer matches with larger gaps (more data) over smaller gaps
+      // This helps avoid false matches where a 0 value looks like a localCount
+      let bestMatch: { localCount: number; frameMarker: number; scanIdx: number } | null = null;
+
+      for (let scanIdx = idx; scanIdx < this.callStack.length - 1 && scanIdx < idx + 20; scanIdx++) {
         const possibleLocalCount = this.callStack[scanIdx];
         const possibleFrameMarker = this.callStack[scanIdx + 1];
 
-        // Frame marker is 0 or 1, and localCount should match the number of values between idx and scanIdx
-        if ((possibleFrameMarker === 0 || possibleFrameMarker === 1)) {
-          const expectedGap = possibleFrameMarker === 1 ? possibleLocalCount + 1 : possibleLocalCount;
-          if (scanIdx - idx === expectedGap) {
-            localCount = possibleLocalCount;
-            frameMarker = possibleFrameMarker;
-            foundFrame = true;
-            break;
+        // Frame marker must be 0 or 1
+        if (possibleFrameMarker !== 0 && possibleFrameMarker !== 1) {
+          continue;
+        }
+
+        // LocalCount should be reasonable (0-15 for Z-Machine)
+        if (possibleLocalCount < 0 || possibleLocalCount > 15) {
+          continue;
+        }
+
+        // Calculate expected gap
+        // If frameMarker=1, there's a storeVar, so: storeVar + locals = localCount + 1
+        // If frameMarker=0, no storeVar, so: locals = localCount
+        const expectedGap = possibleFrameMarker === 1 ? possibleLocalCount + 1 : possibleLocalCount;
+        const actualGap = scanIdx - idx;
+
+        if (actualGap === expectedGap) {
+          // Found a potential match
+          // Prefer matches with: 1) larger gaps (more data), 2) frameMarker=1 over frameMarker=0
+          const currentGap = expectedGap;
+          const bestGap = bestMatch ? (bestMatch.frameMarker === 1 ? bestMatch.localCount + 1 : bestMatch.localCount) : -1;
+
+          if (bestMatch === null || currentGap > bestGap || (currentGap === bestGap && possibleFrameMarker > bestMatch.frameMarker)) {
+            bestMatch = { localCount: possibleLocalCount, frameMarker: possibleFrameMarker, scanIdx };
           }
         }
-        scanIdx++;
+      }
+
+      if (bestMatch) {
+        localCount = bestMatch.localCount;
+        frameMarker = bestMatch.frameMarker;
+        foundFrame = true;
       }
 
       if (!foundFrame) {
-        // Couldn't parse frame structure, this is the current frame
-        // Current frame has: optional storeVar, then locals
-        // Assume everything remaining is the current frame's data
+        // Couldn't find a valid frame boundary
+        // This means remaining data is part of the current frame (being executed)
         break;
       }
 
@@ -193,6 +223,10 @@ class ZMachine {
       // Extract local variables
       const locals: number[] = [];
       for (let i = 0; i < localCount; i++) {
+        if (idx >= this.callStack.length) {
+          console.error(`saveData: Ran out of callStack while reading locals at idx=${idx}`);
+          break;
+        }
         locals.push(this.callStack[idx]);
         idx++;
       }
@@ -387,8 +421,9 @@ class ZMachine {
         const length = cmemData.readUInt8(cmemIdx);
         cmemIdx++;
 
-        // Length byte contains count + 1, so actual count is length - 1
-        const zeroCount = length - 1;
+        // Length byte contains (count - 1), so actual count is length + 1
+        // We output (length + 1) zeros total
+        const zeroCount = length + 1;
         for (let i = 0; i < zeroCount; i++) {
           decompressedXor.push(0);
         }
@@ -396,12 +431,22 @@ class ZMachine {
     }
 
     // Restore memory by XORing decompressed data with clean memory
+    // The decompressedXor should contain exactly dynamicMemorySize bytes
     this.memory = Buffer.from(cleanMemory);
-    for (let idx = 0; idx < decompressedXor.length && idx < this.memory.length; idx++) {
+    const dynamicMemorySize = this.header.staticMemoryAddress;
+
+    // Verify we have the right amount of decompressed data
+    if (decompressedXor.length !== dynamicMemorySize) {
+      console.error(`Decompressed save data size (${decompressedXor.length}) does not match dynamic memory size (${dynamicMemorySize})`);
+      return false;
+    }
+
+    for (let idx = 0; idx < dynamicMemorySize; idx++) {
       const xorByte = decompressedXor[idx];
       const cleanByte = cleanMemory.readUInt8(idx);
       this.memory.writeUInt8(cleanByte ^ xorByte, idx);
     }
+
 
     // Parse Stks chunk (Quetzal-compatible stack frames)
     // Frame format: returnPC (3 bytes), flags (1 byte), storeVar (1 byte),
