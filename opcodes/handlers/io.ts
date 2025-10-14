@@ -459,3 +459,129 @@ export async function h_read_char(
 
   ctx.store?.(charCode);
 }
+
+export async function h_save(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void; branchInfo?: { offset: number; branchOnTrue: boolean } },
+) {
+  // For v1-3, SAVE is a branch instruction. The decoder has already read the branch
+  // offset bytes and advanced PC past them. We need to save the PC pointing to those
+  // branch bytes (before they were read), so when we restore we can read and apply them.
+  //
+  // The branch offset is either 1 byte (if bit 6 of first byte is set) or 2 bytes.
+  // We can determine this by checking the branchInfo passed by the decoder.
+  let savedPC = vm.pc;
+
+  if (ctx.branchInfo) {
+    // Calculate how many bytes the branch offset took
+    // If offset fits in 6 bits (0-63), it's 1 byte. Otherwise it's 2 bytes.
+    const offsetFitsInOneByte = ctx.branchInfo.offset >= 0 && ctx.branchInfo.offset <= 63;
+    const branchBytes = offsetFitsInOneByte ? 1 : 2;
+
+    // Subtract the branch bytes to point to the start of the branch offset
+    savedPC = vm.pc - branchBytes;
+
+    if (vm.trace) {
+      console.log(`@save: PC=${vm.pc.toString(16)}, branchBytes=${branchBytes}, savedPC=${savedPC.toString(16)}`);
+    }
+  }
+
+  try {
+    const saveData = await vm.saveData(savedPC);
+
+    if (!saveData) {
+      if (vm.trace) {
+        console.log(`@save failed: could not generate save data`);
+      }
+      ctx.branch?.(false);
+      return;
+    }
+
+    // In Node.js environment, save to disk
+    if (vm.runtime === 'node') {
+      const { writeFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.quetzal';
+      await writeFile(savePath, saveData);
+
+      if (vm.trace) {
+        console.log(`@save: saved to ${savePath}`);
+      }
+      ctx.branch?.(true);
+    } else {
+      // In browser or other environments, just indicate success
+      // (could potentially trigger a download in the future)
+      if (vm.trace) {
+        console.log(`@save: generated save data (${saveData.length} bytes) but not persisting (non-node environment)`);
+      }
+      ctx.branch?.(true);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@save failed: ${error}`);
+    }
+    ctx.branch?.(false);
+  }
+}
+
+export async function h_restore(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void },
+) {
+  // Restore game state (v1-3: 0OP, v4+: uses extended opcode with store)
+  try {
+    // In Node.js environment, load from disk
+    if (vm.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.quetzal';
+
+      try {
+        const saveData = await readFile(savePath);
+
+        const success = await vm.restoreFromSave(saveData);
+
+        if (success) {
+          // After restore, the PC points to the branch offset of the original SAVE instruction.
+          // According to the Z-Machine Standard 1.1:
+          // - When SAVE succeeds, it branches
+          // - When RESTORE succeeds, execution continues from where SAVE was called, but does NOT branch
+          //   (it acts as if SAVE had returned 0/false)
+          //
+          // So we need to read and skip the branch offset, but NOT actually take the branch.
+          vm._readBranchOffset();
+
+          // The _readBranchOffset() call already advanced PC past the branch bytes, so we're done.
+          // Do NOT call _applyBranch() - just continue execution from here.
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: failed to restore game state`);
+          }
+          ctx.branch?.(false);
+        }
+      } catch (fileError: any) {
+        if (fileError.code === 'ENOENT') {
+          if (vm.trace) {
+            console.log(`@restore: save file not found at ${savePath}`);
+          }
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: error reading save file: ${fileError}`);
+          }
+        }
+        ctx.branch?.(false);
+      }
+    } else {
+      // In browser or other environments, not yet implemented
+      if (vm.trace) {
+        console.log(`@restore: not implemented for non-node environment`);
+      }
+      ctx.branch?.(false);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@restore failed: ${error}`);
+    }
+    ctx.branch?.(false);
+  }
+}
