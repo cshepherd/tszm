@@ -563,17 +563,8 @@ export async function h_restore(
         const success = await vm.restoreFromSave(saveData);
 
         if (success) {
-          // After restore, the PC points to the branch offset of the original SAVE instruction.
-          // According to the Z-Machine Standard 1.1:
-          // - When SAVE succeeds, it branches
-          // - When RESTORE succeeds, execution continues from where SAVE was called, but does NOT branch
-          //   (it acts as if SAVE had returned 0/false)
-          //
-          // So we need to read and skip the branch offset, but NOT actually take the branch.
-          vm._readBranchOffset();
-
-          // The _readBranchOffset() call already advanced PC past the branch bytes, so we're done.
-          // Do NOT call _applyBranch() - just continue execution from here.
+          // restoreFromSave() already skipped the branch bytes and set PC correctly.
+          // Just continue execution from here (as if SAVE returned 0/false).
         } else {
           if (vm.trace) {
             console.log(`@restore: failed to restore game state`);
@@ -623,21 +614,12 @@ export async function h_restore(
         const success = await vm.restoreFromSave(saveData);
 
         if (success) {
-          // After restore, the PC points to the branch offset of the original SAVE instruction.
-          // According to the Z-Machine Standard 1.1:
-          // - When SAVE succeeds, it branches
-          // - When RESTORE succeeds, execution continues from where SAVE was called, but does NOT branch
-          //   (it acts as if SAVE had returned 0/false)
-          //
-          // So we need to read and skip the branch offset, but NOT actually take the branch.
-          vm._readBranchOffset();
-
           if (vm.trace) {
             console.log(`@restore: restored ${saveData.length} bytes from localStorage key "${saveKey}"`);
           }
 
-          // The _readBranchOffset() call already advanced PC past the branch bytes, so we're done.
-          // Do NOT call _applyBranch() - just continue execution from here.
+          // restoreFromSave() already skipped the branch bytes and set PC correctly.
+          // Just continue execution from here (as if SAVE returned 0/false).
         } else {
           if (vm.trace) {
             console.log(`@restore: failed to restore game state`);
