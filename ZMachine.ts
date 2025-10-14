@@ -94,7 +94,7 @@ class ZMachine {
       cleanMemory = Buffer.from(arrayBuffer);
     }
 
-    if(!cleanMemory || !this.memory) {
+    if(!cleanMemory || !this.memory || !this.header) {
       return null;
     }
 
@@ -118,20 +118,146 @@ class ZMachine {
     cmemLength.writeUInt32BE(rleBuffer.length, 0); // 4 bytes, big-endian
     const cmemChunk = Buffer.concat([cmemType, cmemLength, rleBuffer]);
 
-    // Create 'Stks' chunk (stack + callStack + pc)
-    // Each value in the stacks is 16-bit (2 bytes each)
+    // Create 'Stks' chunk (Quetzal-compatible stack frames)
+    // Build frames from the call stack in "least recent first" order
     const stackData: number[] = [];
 
-    // Write this.stack (each value as 16-bit big-endian)
-    for (const value of this.stack) {
-      stackData.push((value >> 8) & 0xFF); // high byte
-      stackData.push(value & 0xFF);        // low byte
+    // For versions 1-5, we need a dummy frame first
+    if (this.header.version <= 5 || this.header.version >= 7) {
+      // Dummy frame: return PC (3 bytes) = 0, flags = 0, store var = 0, args = 0, eval stack size (2 bytes) = 0
+      stackData.push(0, 0, 0); // Return PC (3 bytes)
+      stackData.push(0);        // Flags byte (pvvvv = 00000)
+      stackData.push(0);        // Store variable
+      stackData.push(0);        // Arguments supplied
+      stackData.push(0, 0);     // Evaluation stack size (2 bytes, big-endian) = 0
     }
 
-    // Write this.callStack (each value as 16-bit big-endian)
-    for (const value of this.callStack) {
-      stackData.push((value >> 8) & 0xFF); // high byte
-      stackData.push(value & 0xFF);        // low byte
+    // Parse the callStack to reconstruct frames
+    // Our callStack structure (from bottom up): returnPC, [storeVar], localVar1..N, localCount, frameMarker
+    // We need to walk through and build Quetzal frames
+    const frames: Array<{
+      returnPC: number;
+      storeVar?: number;
+      locals: number[];
+      evalStack: number[];
+      argsMask: number;
+    }> = [];
+
+    let idx = 0;
+    while (idx < this.callStack.length) {
+      const returnPC = this.callStack[idx];
+      idx++;
+
+      // Check if next value could be frame marker (looking ahead to find it)
+      // We need to find the frameMarker to know the structure
+      let frameMarker = 0;
+      let localCount = 0;
+      let storeVar: number | undefined;
+
+      // Scan ahead to find localCount and frameMarker
+      // Structure: returnPC, [storeVar], local1..N, localCount, frameMarker
+      // We scan from current position to find frameMarker pattern
+      let scanIdx = idx;
+      let foundFrame = false;
+
+      while (scanIdx < this.callStack.length - 1) {
+        const possibleLocalCount = this.callStack[scanIdx];
+        const possibleFrameMarker = this.callStack[scanIdx + 1];
+
+        // Frame marker is 0 or 1, and localCount should match the number of values between idx and scanIdx
+        if ((possibleFrameMarker === 0 || possibleFrameMarker === 1)) {
+          const expectedGap = possibleFrameMarker === 1 ? possibleLocalCount + 1 : possibleLocalCount;
+          if (scanIdx - idx === expectedGap) {
+            localCount = possibleLocalCount;
+            frameMarker = possibleFrameMarker;
+            foundFrame = true;
+            break;
+          }
+        }
+        scanIdx++;
+      }
+
+      if (!foundFrame) {
+        // Couldn't parse frame structure, this is the current frame
+        // Current frame has: optional storeVar, then locals
+        // Assume everything remaining is the current frame's data
+        break;
+      }
+
+      // Extract storeVar if present
+      if (frameMarker === 1) {
+        storeVar = this.callStack[idx];
+        idx++;
+      }
+
+      // Extract local variables
+      const locals: number[] = [];
+      for (let i = 0; i < localCount; i++) {
+        locals.push(this.callStack[idx]);
+        idx++;
+      }
+
+      // Skip localCount and frameMarker
+      idx += 2;
+
+      // For now, we don't have evaluation stack per frame, so it's empty
+      // In a full implementation, we'd need to track this separately
+      frames.push({
+        returnPC,
+        storeVar,
+        locals,
+        evalStack: [],
+        argsMask: 0, // We don't track which args were supplied currently
+      });
+    }
+
+    // Current frame: has returnPC (from parameter pc), current locals, and current stack
+    frames.push({
+      returnPC: pc,
+      storeVar: undefined, // Current frame doesn't have a store var (it hasn't returned yet)
+      locals: this.localVariables,
+      evalStack: this.stack, // Current evaluation stack
+      argsMask: 0, // We don't track this currently
+    });
+
+    // Write frames to stackData in Quetzal format
+    for (const frame of frames) {
+      // Return PC (3 bytes, big-endian)
+      stackData.push((frame.returnPC >> 16) & 0xFF);
+      stackData.push((frame.returnPC >> 8) & 0xFF);
+      stackData.push(frame.returnPC & 0xFF);
+
+      // Flags byte: 000pvvvv
+      // p = 1 if result is discarded (i.e., no store variable), 0 otherwise
+      // vvvv = number of local variables (0-15)
+      const localCount = frame.locals.length & 0x0F;
+      const discardResult = frame.storeVar === undefined ? 1 : 0;
+      const flags = (discardResult << 4) | localCount;
+      stackData.push(flags);
+
+      // Store variable (1 byte)
+      stackData.push(frame.storeVar ?? 0);
+
+      // Arguments supplied (1 byte) - bitmap gfedcba where each bit indicates if arg is present
+      // We don't currently track this, so set to 0
+      stackData.push(frame.argsMask);
+
+      // Evaluation stack size (2 bytes, big-endian)
+      const evalStackSize = frame.evalStack.length;
+      stackData.push((evalStackSize >> 8) & 0xFF);
+      stackData.push(evalStackSize & 0xFF);
+
+      // Local variables (vvvv words, each 2 bytes big-endian)
+      for (const localVar of frame.locals) {
+        stackData.push((localVar >> 8) & 0xFF);
+        stackData.push(localVar & 0xFF);
+      }
+
+      // Evaluation stack contents (evalStackSize words, each 2 bytes big-endian)
+      for (const stackVal of frame.evalStack) {
+        stackData.push((stackVal >> 8) & 0xFF);
+        stackData.push(stackVal & 0xFF);
+      }
     }
 
     const stackBuffer = Buffer.from(stackData);
@@ -141,10 +267,6 @@ class ZMachine {
     const stksChunk = Buffer.concat([stksType, stksLength, stackBuffer]);
 
     // Create 'IFhd' chunk (header information, fixed 13 bytes)
-    if (!this.header) {
-      return null;
-    }
-
     const ifhdData: number[] = [];
 
     // 2-byte release number (big-endian)
@@ -281,37 +403,127 @@ class ZMachine {
       this.memory.writeUInt8(cleanByte ^ xorByte, idx);
     }
 
-    // Restore stacks from Stks chunk
-    this.stack = [];
-    this.callStack = [];
-
+    // Parse Stks chunk (Quetzal-compatible stack frames)
+    // Frame format: returnPC (3 bytes), flags (1 byte), storeVar (1 byte),
+    //               argsMask (1 byte), evalStackSize (2 bytes),
+    //               locals (vvvv * 2 bytes), evalStack (size * 2 bytes)
     let stksIdx = 0;
+    const frames: Array<{
+      returnPC: number;
+      flags: number;
+      storeVar: number | undefined;
+      argsMask: number;
+      locals: number[];
+      evalStack: number[];
+    }> = [];
 
-    // First, we need to figure out where stack ends and callStack begins
-    // The Stks chunk contains: [stack values] + [callStack values]
-    // We need to parse all 16-bit values and separate them
-    const allStackValues: number[] = [];
     while (stksIdx < stksData.length) {
-      if (stksIdx + 1 < stksData.length) {
-        const value = stksData.readUInt16BE(stksIdx);
-        allStackValues.push(value);
+      // Need at least 8 bytes for frame header
+      if (stksIdx + 8 > stksData.length) break;
+
+      // Return PC (3 bytes, big-endian)
+      const returnPC = (stksData.readUInt8(stksIdx) << 16) |
+                       (stksData.readUInt8(stksIdx + 1) << 8) |
+                       stksData.readUInt8(stksIdx + 2);
+      stksIdx += 3;
+
+      // Flags byte (000pvvvv)
+      const flags = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      const discardResult = (flags >> 4) & 0x01;
+      const localCount = flags & 0x0F;
+
+      // Store variable (1 byte)
+      const storeVar = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      // Arguments supplied (1 byte)
+      const argsMask = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      // Evaluation stack size (2 bytes, big-endian)
+      const evalStackSize = stksData.readUInt16BE(stksIdx);
+      stksIdx += 2;
+
+      // Local variables (localCount words, each 2 bytes)
+      const locals: number[] = [];
+      for (let i = 0; i < localCount; i++) {
+        if (stksIdx + 2 > stksData.length) break;
+        const localVal = stksData.readUInt16BE(stksIdx);
+        locals.push(localVal);
         stksIdx += 2;
-      } else {
-        break;
       }
+
+      // Evaluation stack (evalStackSize words, each 2 bytes)
+      const evalStack: number[] = [];
+      for (let i = 0; i < evalStackSize; i++) {
+        if (stksIdx + 2 > stksData.length) break;
+        const stackVal = stksData.readUInt16BE(stksIdx);
+        evalStack.push(stackVal);
+        stksIdx += 2;
+      }
+
+      frames.push({
+        returnPC,
+        flags,
+        storeVar: discardResult ? undefined : storeVar,
+        argsMask,
+        locals,
+        evalStack,
+      });
     }
 
-    // Note: We can't easily distinguish where stack ends and callStack begins
-    // from the save data alone. For now, we'll restore all values to callStack
-    // and assume stack was empty (this is a limitation that may need additional metadata)
-    // TODO: Add stack/callStack boundary marker to save format
-    this.callStack = allStackValues;
+    // Skip the dummy frame if present (first frame with returnPC=0)
+    let frameIdx = 0;
+    if (frames.length > 0 && frames[0].returnPC === 0) {
+      frameIdx = 1; // Skip dummy frame
+    }
 
-    // Restore program counter
-    this.pc = savedPC;
+    // Rebuild callStack from frames (all but the last frame)
+    // Our callStack structure: returnPC, [storeVar], local1..N, localCount, frameMarker
+    this.callStack = [];
+
+    for (let i = frameIdx; i < frames.length - 1; i++) {
+      const frame = frames[i];
+
+      // Push return PC
+      this.callStack.push(frame.returnPC);
+
+      // Push store variable if present
+      const frameMarker = frame.storeVar !== undefined ? 1 : 0;
+      if (frameMarker === 1 && frame.storeVar !== undefined) {
+        this.callStack.push(frame.storeVar);
+      }
+
+      // Push local variables
+      for (const local of frame.locals) {
+        this.callStack.push(local);
+      }
+
+      // Push local count and frame marker
+      this.callStack.push(frame.locals.length);
+      this.callStack.push(frameMarker);
+
+      // Note: We're losing the evaluation stack for each frame here
+      // In a full implementation, we'd need to interleave eval stacks somehow
+    }
+
+    // Last frame is the current frame
+    if (frames.length > frameIdx) {
+      const currentFrame = frames[frames.length - 1];
+      this.localVariables = currentFrame.locals;
+      this.stack = currentFrame.evalStack;
+      this.pc = currentFrame.returnPC;
+    } else {
+      // No frames, reset to initial state
+      this.localVariables = [];
+      this.stack = [];
+      this.pc = savedPC;
+    }
 
     if (this.trace) {
-      console.log(`Restored from save: PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}`);
+      console.log(`Restored from save: PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
     }
 
     return true;

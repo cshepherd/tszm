@@ -101,9 +101,25 @@ describe("Opcode Tables", () => {
       expect(instr!.doesBranch).toBe(true);
     });
 
+    it("should have save at 0x05 with branch and maxVersion", () => {
+      const instr = TABLE_0OP[0x05];
+      expect(instr).toBeDefined();
+      expect(instr!.name).toBe("save");
+      expect(instr!.kind).toBe("0OP");
+      expect(instr!.maxVersion).toBe(3);
+      expect(instr!.doesBranch).toBe(true);
+    });
+
+    it("should have restore at 0x06 with branch and maxVersion", () => {
+      const instr = TABLE_0OP[0x06];
+      expect(instr).toBeDefined();
+      expect(instr!.name).toBe("restore");
+      expect(instr!.kind).toBe("0OP");
+      expect(instr!.maxVersion).toBe(3);
+      expect(instr!.doesBranch).toBe(true);
+    });
+
     it("should have undefined entries for unimplemented opcodes", () => {
-      expect(TABLE_0OP[0x05]).toBeUndefined(); // save (v1-3)
-      expect(TABLE_0OP[0x06]).toBeUndefined(); // restore (v1-3)
       expect(TABLE_0OP[0x07]).toBeUndefined(); // restart
       expect(TABLE_0OP[0x0e]).toBeUndefined(); // extended prefix
     });
@@ -668,6 +684,8 @@ describe("Opcode Tables", () => {
   describe("Specific opcode properties", () => {
     it("should have branch opcodes correctly marked", () => {
       const branchOpcodes = [
+        { table: TABLE_0OP, opcode: 0x05, name: "save" },
+        { table: TABLE_0OP, opcode: 0x06, name: "restore" },
         { table: TABLE_0OP, opcode: 0x0d, name: "verify" },
         { table: TABLE_0OP, opcode: 0x0f, name: "piracy" },
         { table: TABLE_1OP, opcode: 0x00, name: "jz" },
