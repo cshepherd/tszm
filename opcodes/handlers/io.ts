@@ -481,3 +481,16 @@ export function h_save(
   }
   ctx.branch?.(true);
 }
+
+export function h_restore(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void },
+) {
+  // Restore game state (v1-3: 0OP, v4+: uses extended opcode with store)
+  // Currently no-op - just return success
+  if (vm.trace) {
+    console.log(`@restore (no-op, returning success)`);
+  }
+  ctx.branch?.(true);
+}

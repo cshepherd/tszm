@@ -178,6 +178,145 @@ class ZMachine {
     return iffFile;
   }
 
+  async restoreFromSave(saveData: Buffer): Promise<boolean> {
+    // Load a fresh copy of the game file to restore modified memory
+    let cleanMemory: Buffer | null = null;
+
+    if(this.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      cleanMemory = await readFile(this.filePath);
+    }
+    if(this.runtime === 'browser') {
+      const res = await fetch(this.filePath);
+      const arrayBuffer = await res.arrayBuffer();
+      cleanMemory = Buffer.from(arrayBuffer);
+    }
+
+    if(!cleanMemory || !this.header) {
+      return false;
+    }
+
+    // Parse IFF chunks
+    let offset = 0;
+    let ifhdData: Buffer | null = null;
+    let cmemData: Buffer | null = null;
+    let stksData: Buffer | null = null;
+
+    while (offset < saveData.length) {
+      // Read chunk type (4 bytes)
+      if (offset + 8 > saveData.length) break;
+
+      const chunkType = saveData.toString('ascii', offset, offset + 4);
+      offset += 4;
+
+      // Read chunk length (4 bytes, big-endian)
+      const chunkLength = saveData.readUInt32BE(offset);
+      offset += 4;
+
+      // Read chunk data
+      if (offset + chunkLength > saveData.length) break;
+      const chunkData = saveData.subarray(offset, offset + chunkLength);
+      offset += chunkLength;
+
+      // Store chunk data based on type
+      if (chunkType === 'IFhd') {
+        ifhdData = chunkData;
+      } else if (chunkType === 'CMem') {
+        cmemData = chunkData;
+      } else if (chunkType === 'Stks') {
+        stksData = chunkData;
+      }
+    }
+
+    // Validate we have all required chunks
+    if (!ifhdData || !cmemData || !stksData) {
+      console.error('Missing required chunks in save file');
+      return false;
+    }
+
+    // Parse IFhd chunk (13 bytes)
+    const savedRelease = ifhdData.readUInt16BE(0);
+    const savedSerial = ifhdData.toString('ascii', 2, 8).replace(/\0/g, '');
+    const savedChecksum = ifhdData.readUInt16BE(8);
+    const savedPC = (ifhdData.readUInt8(10) << 16) | (ifhdData.readUInt8(11) << 8) | ifhdData.readUInt8(12);
+
+    // Validate against current game file
+    if (this.header.release !== savedRelease ||
+        this.header.serial !== savedSerial ||
+        this.header.checksum !== savedChecksum) {
+      console.error('Save file does not match current game file');
+      return false;
+    }
+
+    // Decode RLE compressed memory from CMem chunk
+    const decompressedXor: number[] = [];
+    let cmemIdx = 0;
+
+    while (cmemIdx < cmemData.length) {
+      const byte = cmemData.readUInt8(cmemIdx);
+      cmemIdx++;
+
+      if (byte > 0) {
+        // Non-zero byte: add it directly
+        decompressedXor.push(byte);
+      } else {
+        // Zero byte: read length and expand
+        if (cmemIdx >= cmemData.length) break;
+        const length = cmemData.readUInt8(cmemIdx);
+        cmemIdx++;
+
+        // Length byte contains count + 1, so actual count is length - 1
+        const zeroCount = length - 1;
+        for (let i = 0; i < zeroCount; i++) {
+          decompressedXor.push(0);
+        }
+      }
+    }
+
+    // Restore memory by XORing decompressed data with clean memory
+    this.memory = Buffer.from(cleanMemory);
+    for (let idx = 0; idx < decompressedXor.length && idx < this.memory.length; idx++) {
+      const xorByte = decompressedXor[idx];
+      const cleanByte = cleanMemory.readUInt8(idx);
+      this.memory.writeUInt8(cleanByte ^ xorByte, idx);
+    }
+
+    // Restore stacks from Stks chunk
+    this.stack = [];
+    this.callStack = [];
+
+    let stksIdx = 0;
+
+    // First, we need to figure out where stack ends and callStack begins
+    // The Stks chunk contains: [stack values] + [callStack values]
+    // We need to parse all 16-bit values and separate them
+    const allStackValues: number[] = [];
+    while (stksIdx < stksData.length) {
+      if (stksIdx + 1 < stksData.length) {
+        const value = stksData.readUInt16BE(stksIdx);
+        allStackValues.push(value);
+        stksIdx += 2;
+      } else {
+        break;
+      }
+    }
+
+    // Note: We can't easily distinguish where stack ends and callStack begins
+    // from the save data alone. For now, we'll restore all values to callStack
+    // and assume stack was empty (this is a limitation that may need additional metadata)
+    // TODO: Add stack/callStack boundary marker to save format
+    this.callStack = allStackValues;
+
+    // Restore program counter
+    this.pc = savedPC;
+
+    if (this.trace) {
+      console.log(`Restored from save: PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}`);
+    }
+
+    return true;
+  }
+
   async load() {
     if(this.runtime === 'node') {
       // Dynamically import fs/promises only in Node.js environment
