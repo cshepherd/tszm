@@ -508,11 +508,32 @@ export async function h_save(
         console.log(`@save: saved to ${savePath}`);
       }
       ctx.branch?.(true);
-    } else {
-      // In browser or other environments, just indicate success
-      // (could potentially trigger a download in the future)
+    } else if (vm.runtime === 'browser') {
+      // In browser environment, save to localStorage using game identifier
+      const header = vm.getHeader();
+      if (!header) {
+        if (vm.trace) {
+          console.log(`@save failed: could not get game header`);
+        }
+        ctx.branch?.(false);
+        return;
+      }
+
+      const gameIdentifier = `${header.release}.${header.serial}`;
+      const saveKey = `tszm-save-${gameIdentifier}`;
+
+      // Convert Buffer to base64 string for localStorage
+      const base64Data = saveData.toString('base64');
+      localStorage.setItem(saveKey, base64Data);
+
       if (vm.trace) {
-        console.log(`@save: generated save data (${saveData.length} bytes) but not persisting (non-node environment)`);
+        console.log(`@save: saved ${saveData.length} bytes to localStorage key "${saveKey}"`);
+      }
+      ctx.branch?.(true);
+    } else {
+      // In other environments, just indicate success
+      if (vm.trace) {
+        console.log(`@save: generated save data (${saveData.length} bytes) but not persisting (unknown environment)`);
       }
       ctx.branch?.(true);
     }
@@ -571,10 +592,68 @@ export async function h_restore(
         }
         ctx.branch?.(false);
       }
+    } else if (vm.runtime === 'browser') {
+      // In browser environment, load from localStorage using game identifier
+      const header = vm.getHeader();
+      if (!header) {
+        if (vm.trace) {
+          console.log(`@restore failed: could not get game header`);
+        }
+        ctx.branch?.(false);
+        return;
+      }
+
+      const gameIdentifier = `${header.release}.${header.serial}`;
+      const saveKey = `tszm-save-${gameIdentifier}`;
+
+      try {
+        const base64Data = localStorage.getItem(saveKey);
+
+        if (!base64Data) {
+          if (vm.trace) {
+            console.log(`@restore: no save data found in localStorage for key "${saveKey}"`);
+          }
+          ctx.branch?.(false);
+          return;
+        }
+
+        // Convert base64 string back to Buffer
+        const saveData = Buffer.from(base64Data, 'base64');
+
+        const success = await vm.restoreFromSave(saveData);
+
+        if (success) {
+          // After restore, the PC points to the branch offset of the original SAVE instruction.
+          // According to the Z-Machine Standard 1.1:
+          // - When SAVE succeeds, it branches
+          // - When RESTORE succeeds, execution continues from where SAVE was called, but does NOT branch
+          //   (it acts as if SAVE had returned 0/false)
+          //
+          // So we need to read and skip the branch offset, but NOT actually take the branch.
+          vm._readBranchOffset();
+
+          if (vm.trace) {
+            console.log(`@restore: restored ${saveData.length} bytes from localStorage key "${saveKey}"`);
+          }
+
+          // The _readBranchOffset() call already advanced PC past the branch bytes, so we're done.
+          // Do NOT call _applyBranch() - just continue execution from here.
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: failed to restore game state`);
+          }
+          ctx.branch?.(false);
+        }
+      } catch (storageError) {
+        if (vm.trace) {
+          console.log(`@restore: error reading from localStorage: ${storageError}`);
+        }
+        ctx.branch?.(false);
+      }
     } else {
-      // In browser or other environments, not yet implemented
+      // In other environments, not yet implemented
       if (vm.trace) {
-        console.log(`@restore: not implemented for non-node environment`);
+        console.log(`@restore: not implemented for unknown environment`);
       }
       ctx.branch?.(false);
     }
