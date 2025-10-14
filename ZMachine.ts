@@ -611,23 +611,25 @@ class ZMachine {
       frameIdx = 1; // Skip dummy frame when processing call frames
     }
 
-    // Rebuild callStack from frames (all but the last frame)
+    // Rebuild callStack from frames
     // Our callStack structure: returnPC, [storeVar], local1..N, localCount, frameMarker
+    // IMPORTANT: Each callStack entry stores the PREVIOUS frame's locals (to restore when returning)
     this.callStack = [];
 
     for (let i = frameIdx; i < frames.length - 1; i++) {
       const frame = frames[i];
+      const nextFrame = frames[i + 1];
 
-      // Push return PC
-      this.callStack.push(frame.returnPC);
+      // Push the NEXT frame's return PC and store var
+      // (because this entry is for returning FROM the next frame TO this frame)
+      this.callStack.push(nextFrame.returnPC);
 
-      // Push store variable if present
-      const frameMarker = frame.storeVar !== undefined ? 1 : 0;
-      if (frameMarker === 1 && frame.storeVar !== undefined) {
-        this.callStack.push(frame.storeVar);
+      const frameMarker = nextFrame.storeVar !== undefined ? 1 : 0;
+      if (frameMarker === 1 && nextFrame.storeVar !== undefined) {
+        this.callStack.push(nextFrame.storeVar);
       }
 
-      // Push local variables
+      // Push THIS frame's locals (which will be restored when returning from next frame)
       for (const local of frame.locals) {
         this.callStack.push(local);
       }
@@ -635,9 +637,6 @@ class ZMachine {
       // Push local count and frame marker
       this.callStack.push(frame.locals.length);
       this.callStack.push(frameMarker);
-
-      // Note: We're losing the evaluation stack for each frame here
-      // In a full implementation, we'd need to interleave eval stacks somehow
     }
 
     // Last frame is the current frame (if any frames exist after dummy)
@@ -653,10 +652,8 @@ class ZMachine {
       // The current execution point is in IFhd.
       this.pc = savedPC;
 
-      // Push the current frame's return PC back onto callStack for when we return
-      if (currentFrame.returnPC !== 0) {
-        this.callStack.push(currentFrame.returnPC);
-      }
+      // Note: We don't push the current frame onto callStack because it's the active frame.
+      // The callStack already contains entries for all previous frames from the loop above.
     } else {
       // No frames, reset to initial state
       this.localVariables = [];
@@ -664,8 +661,13 @@ class ZMachine {
       this.pc = savedPC;
     }
 
+    // After restoring, the PC points to the branch offset bytes of the original SAVE instruction.
+    // According to the Z-Machine spec, after RESTORE succeeds, execution continues as if
+    // SAVE returned 0 (without taking the branch). We need to skip the branch bytes.
+    this._readBranchOffset();
+
     if (this.trace) {
-      console.log(`Restored from save: PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
+      console.log(`Restored from save: PC=${this.pc.toString(16)} (after skipping branch), stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
     }
 
     return true;
