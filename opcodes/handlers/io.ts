@@ -530,7 +530,6 @@ export async function h_restore(
   ctx: { branch?: (condition: boolean) => void },
 ) {
   // Restore game state (v1-3: 0OP, v4+: uses extended opcode with store)
-  console.log(`@restore HANDLER CALLED`);
   try {
     // In Node.js environment, load from disk
     if (vm.runtime === 'node') {
@@ -540,20 +539,9 @@ export async function h_restore(
       try {
         const saveData = await readFile(savePath);
 
-        console.log(`@restore: loaded from ${savePath} (${saveData.length} bytes)`);
-
         const success = await vm.restoreFromSave(saveData);
 
         if (success) {
-          console.log(`@restore: successfully restored game state, PC=${vm.pc.toString(16)}`);
-
-          // Check key globals right after restore
-          const header = vm.getHeader();
-          const globalVarsAddr = header.globalVariablesAddress;
-          const G0 = vm.memory.readUInt16BE(globalVarsAddr + 0 * 2);
-          const G2 = vm.memory.readUInt16BE(globalVarsAddr + 2 * 2);
-          console.log(`@restore: globals immediately after restore: G0=${G0}, G2=${G2}`);
-
           // After restore, the PC points to the branch offset of the original SAVE instruction.
           // According to the Z-Machine Standard 1.1:
           // - When SAVE succeeds, it branches
@@ -561,19 +549,10 @@ export async function h_restore(
           //   (it acts as if SAVE had returned 0/false)
           //
           // So we need to read and skip the branch offset, but NOT actually take the branch.
-          const branchInfo = vm._readBranchOffset();
-
-          console.log(`@restore: read branch offset from saved PC: offset=${branchInfo.offset}, branchOnTrue=${branchInfo.branchOnTrue}`);
+          vm._readBranchOffset();
 
           // The _readBranchOffset() call already advanced PC past the branch bytes, so we're done.
           // Do NOT call _applyBranch() - just continue execution from here.
-
-          console.log(`@restore: after skipping branch, PC=${vm.pc.toString(16)}`);
-
-          // Check globals after skipping branch
-          const G0_after = vm.memory.readUInt16BE(globalVarsAddr + 0 * 2);
-          const G2_after = vm.memory.readUInt16BE(globalVarsAddr + 2 * 2);
-          console.log(`@restore: globals after skipping branch: G0=${G0_after}, G2=${G2_after}`)
         } else {
           if (vm.trace) {
             console.log(`@restore: failed to restore game state`);
