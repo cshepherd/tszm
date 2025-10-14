@@ -463,17 +463,32 @@ export async function h_read_char(
 export async function h_save(
   vm: any,
   _operands: number[],
-  ctx: { branch?: (condition: boolean) => void },
+  ctx: { branch?: (condition: boolean) => void; branchInfo?: { offset: number; branchOnTrue: boolean } },
 ) {
-  // The return PC is at the bottom of the current frame
-  // Calculate its position: current length - (frame marker + saved local count + saved locals + optional store + return PC)
-  const frameMarker = vm.callStack[vm.callStack.length - 1];
-  const savedLocalCount = vm.callStack[vm.callStack.length - 2];
-  const frameSize = 2 + savedLocalCount + (frameMarker === 1 ? 1 : 0) + 1; // marker + count + locals + optional store + return PC
-  const returnPC = vm.callStack[vm.callStack.length - frameSize];
+  // For v1-3, SAVE is a branch instruction. The decoder has already read the branch
+  // offset bytes and advanced PC past them. We need to save the PC pointing to those
+  // branch bytes (before they were read), so when we restore we can read and apply them.
+  //
+  // The branch offset is either 1 byte (if bit 6 of first byte is set) or 2 bytes.
+  // We can determine this by checking the branchInfo passed by the decoder.
+  let savedPC = vm.pc;
+
+  if (ctx.branchInfo) {
+    // Calculate how many bytes the branch offset took
+    // If offset fits in 6 bits (0-63), it's 1 byte. Otherwise it's 2 bytes.
+    const offsetFitsInOneByte = ctx.branchInfo.offset >= 0 && ctx.branchInfo.offset <= 63;
+    const branchBytes = offsetFitsInOneByte ? 1 : 2;
+
+    // Subtract the branch bytes to point to the start of the branch offset
+    savedPC = vm.pc - branchBytes;
+
+    if (vm.trace) {
+      console.log(`@save: PC=${vm.pc.toString(16)}, branchBytes=${branchBytes}, savedPC=${savedPC.toString(16)}`);
+    }
+  }
 
   try {
-    const saveData = await vm.saveData(returnPC);
+    const saveData = await vm.saveData(savedPC);
 
     if (!saveData) {
       if (vm.trace) {
@@ -532,9 +547,24 @@ export async function h_restore(
 
         if (success) {
           if (vm.trace) {
-            console.log(`@restore: successfully restored game state`);
+            console.log(`@restore: successfully restored game state, PC=${vm.pc.toString(16)}`);
           }
-          ctx.branch?.(true);
+
+          // After restore, the PC points to the branch offset of the original SAVE instruction
+          // We need to read and skip the branch offset, then take the branch
+          // For v1-3, SAVE is a branch instruction, so we need to read the branch data
+          const branchInfo = vm._readBranchOffset();
+
+          if (vm.trace) {
+            console.log(`@restore: read branch offset from saved PC: offset=${branchInfo.offset}, branchOnTrue=${branchInfo.branchOnTrue}`);
+          }
+
+          // Now apply the branch as if SAVE succeeded (branch on true)
+          vm._applyBranch(branchInfo.offset, branchInfo.branchOnTrue, true);
+
+          if (vm.trace) {
+            console.log(`@restore: after branch, PC=${vm.pc.toString(16)}`);
+          }
         } else {
           if (vm.trace) {
             console.log(`@restore: failed to restore game state`);

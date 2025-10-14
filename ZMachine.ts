@@ -1006,6 +1006,8 @@ class ZMachine {
       const { offset, branchOnTrue } = di.branchInfo;
       ctx.branch = (cond: boolean) =>
         this._applyBranch(offset, branchOnTrue, cond);
+      // Also expose the branchInfo to handlers that need it (like h_save)
+      (ctx as any).branchInfo = di.branchInfo;
     }
 
     // Execute
