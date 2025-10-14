@@ -68,6 +68,7 @@ import {
   h_input_stream,
   h_sound_effect,
   h_read_char,
+  h_save,
 } from "./handlers/io";
 import {
   h_log_shift,
@@ -117,7 +118,14 @@ TABLE_0OP[0x04] = d0(0x04, {
   handler: (vm) => h_nop(vm),
 });
 
-// TABLE_0OP[0x05] = save (v1-3) - TODO: implement save/restore
+TABLE_0OP[0x05] = d0(0x05, {
+  name: "save",
+  operandKinds: [],
+  maxVersion: 3,
+  doesBranch: true,
+  handler: (vm, ops, ctx) => h_save(vm, ops, ctx),
+});
+
 // TABLE_0OP[0x06] = restore (v1-3) - TODO: implement save/restore
 // TABLE_0OP[0x07] = restart - TODO: implement restart
 

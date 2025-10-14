@@ -459,3 +459,25 @@ export async function h_read_char(
 
   ctx.store?.(charCode);
 }
+
+export function h_save(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void },
+) {
+  // The return PC is at the bottom of the current frame
+  // Calculate its position: current length - (frame marker + saved local count + saved locals + optional store + return PC)
+  const frameMarker = vm.callStack[vm.callStack.length - 1];
+  const savedLocalCount = vm.callStack[vm.callStack.length - 2];
+  const frameSize = 2 + savedLocalCount + (frameMarker === 1 ? 1 : 0) + 1; // marker + count + locals + optional store + return PC
+  const returnPC = vm.callStack[vm.callStack.length - frameSize];
+
+  const saveData = vm.saveData(returnPC);
+
+  // Save game state (v1-3: 0OP, v4+: uses extended opcode with store)
+  // Currently no-op - just return success
+  if (vm.trace) {
+    console.log(`@save (no-op, returning success)`);
+  }
+  ctx.branch?.(true);
+}

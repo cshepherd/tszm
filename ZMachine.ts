@@ -49,6 +49,135 @@ class ZMachine {
         this.runtime = 'react-native';
   }
 
+  async rleBuffer(input: Buffer): Promise<Buffer> {
+    // Use an array to build output, then convert to Buffer at the end
+    const outputBuffer: number[] = [];
+    let inputIdx = 0;
+
+    while (inputIdx < input.length) {
+      const inByte = input.readUInt8(inputIdx);
+
+      if (inByte > 0) {
+        // Non-zero byte: just copy it to output
+        outputBuffer.push(inByte);
+        inputIdx++;
+      } else {
+        // Zero byte encountered: count the run of zeros
+        let zeroCount = 0;
+
+        // Count consecutive zeros (max 255 at a time due to 8-bit length byte)
+        while (inputIdx < input.length && input.readUInt8(inputIdx) === 0 && zeroCount < 255) {
+          zeroCount++;
+          inputIdx++;
+        }
+
+        // Write zero marker byte followed by length byte (count + 1)
+        outputBuffer.push(0);
+        outputBuffer.push(zeroCount + 1);
+      }
+    }
+
+    return Buffer.from(outputBuffer);
+  }
+
+  async saveData(pc: number): Promise<Buffer|null> {
+    let cleanMemory: Buffer | null = null;
+
+    // Load a fresh copy of the game file
+    if(this.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      cleanMemory = await readFile(this.filePath);
+    }
+    if(this.runtime === 'browser') {
+      const res = await fetch(this.filePath);
+      const arrayBuffer = await res.arrayBuffer();
+      cleanMemory = Buffer.from(arrayBuffer);
+    }
+
+    if(!cleanMemory || !this.memory) {
+      return null;
+    }
+
+    // Create a buffer to hold the XOR'd bytes
+    const xorBuffer: number[] = [];
+    for(let idx = 0; idx < cleanMemory.length; idx++) {
+      const cleanByte = cleanMemory.readUInt8(idx);
+      const dirtyByte = this.memory.readUInt8(idx);
+
+      xorBuffer.push(cleanByte ^ dirtyByte);
+    }
+
+    // Convert to Buffer and RLE encode it
+    const saveBuffer = Buffer.from(xorBuffer);
+    const rleBuffer = await this.rleBuffer(saveBuffer);
+
+    // Create 'CMem' chunk (compressed memory)
+    // IFF chunk format: 4-byte chunk type + 4-byte length (big-endian) + chunk data
+    const cmemType = Buffer.from('CMem', 'ascii'); // 4 bytes
+    const cmemLength = Buffer.alloc(4);
+    cmemLength.writeUInt32BE(rleBuffer.length, 0); // 4 bytes, big-endian
+    const cmemChunk = Buffer.concat([cmemType, cmemLength, rleBuffer]);
+
+    // Create 'Stks' chunk (stack + callStack + pc)
+    // Each value in the stacks is 16-bit (2 bytes each)
+    const stackData: number[] = [];
+
+    // Write this.stack (each value as 16-bit big-endian)
+    for (const value of this.stack) {
+      stackData.push((value >> 8) & 0xFF); // high byte
+      stackData.push(value & 0xFF);        // low byte
+    }
+
+    // Write this.callStack (each value as 16-bit big-endian)
+    for (const value of this.callStack) {
+      stackData.push((value >> 8) & 0xFF); // high byte
+      stackData.push(value & 0xFF);        // low byte
+    }
+
+    const stackBuffer = Buffer.from(stackData);
+    const stksType = Buffer.from('Stks', 'ascii'); // 4 bytes
+    const stksLength = Buffer.alloc(4);
+    stksLength.writeUInt32BE(stackBuffer.length, 0); // 4 bytes, big-endian
+    const stksChunk = Buffer.concat([stksType, stksLength, stackBuffer]);
+
+    // Create 'IFhd' chunk (header information, fixed 13 bytes)
+    if (!this.header) {
+      return null;
+    }
+
+    const ifhdData: number[] = [];
+
+    // 2-byte release number (big-endian)
+    ifhdData.push((this.header.release >> 8) & 0xFF);
+    ifhdData.push(this.header.release & 0xFF);
+
+    // 6-byte serial number (ASCII string, pad or truncate to 6 bytes)
+    const serialBytes = Buffer.from(this.header.serial.padEnd(6, '\0').slice(0, 6), 'ascii');
+    for (let i = 0; i < 6; i++) {
+      ifhdData.push(serialBytes[i]);
+    }
+
+    // 2-byte checksum (big-endian)
+    ifhdData.push((this.header.checksum >> 8) & 0xFF);
+    ifhdData.push(this.header.checksum & 0xFF);
+
+    // 3-byte program counter (big-endian, only use lower 24 bits)
+    ifhdData.push((pc >> 16) & 0xFF);  // highest byte
+    ifhdData.push((pc >> 8) & 0xFF);   // middle byte
+    ifhdData.push(pc & 0xFF);          // lowest byte
+
+    const ifhdBuffer = Buffer.from(ifhdData);
+    const ifhdType = Buffer.from('IFhd', 'ascii'); // 4 bytes
+    const ifhdLength = Buffer.alloc(4);
+    ifhdLength.writeUInt32BE(13, 0); // Fixed length: 13 bytes
+    const ifhdChunk = Buffer.concat([ifhdType, ifhdLength, ifhdBuffer]);
+
+    // Combine all chunks into IFF file
+    const iffFile = Buffer.concat([ifhdChunk, cmemChunk, stksChunk]);
+
+    return iffFile;
+  }
+
   async load() {
     if(this.runtime === 'node') {
       // Dynamically import fs/promises only in Node.js environment
