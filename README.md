@@ -29,7 +29,9 @@ npm run build.mjs
 
 07-Oct-2025 - [Online coverage report from CI](https://cshepherd.github.io/tszm/coverage/)
 
-09-Oct-2025: Improving Unit Test coverage, but meanwhile ZMCDN is more complete and caches almost everything. When we don't get everything quite right though, you can `/redraw` and force ZMCDN to invalidate its cache and try again.
+09-Oct-2025 - Improving Unit Test coverage, but meanwhile ZMCDN is more complete and caches almost everything. When we don't get everything quite right though, you can `/redraw` and force ZMCDN to invalidate its cache and try again.
+
+14-Oct-2025 - Save and Restore, in Quetzal format. New, but mostly validated already. Already useable in commandline, coming to React next.
 
 Public zmcdn server is at `https://zmcdn.ballmerpeak.org:3003`
 
