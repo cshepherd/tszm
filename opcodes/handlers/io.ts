@@ -209,7 +209,6 @@ function tokenize(vm: any, textBufferAddr: number, parseBufferAddr: number) {
       const entryAddr = firstEntryAddr + j * entryLength;
       const entry1 = vm.memory.readUInt16BE(entryAddr);
       const entry2 = vm.memory.readUInt16BE(entryAddr + 2);
-      const entry3 = vm.memory.readUInt16BE(entryAddr + 4);
 
       // In v3, always compare 2 words (dictionary entries are fixed at 2 words)
       if (entry1 === encodedWord[0] && entry2 === encodedWord[1]) {
@@ -527,4 +526,201 @@ export async function h_read_char(
   }
 
   ctx.store?.(charCode);
+}
+
+export async function h_save(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void; branchInfo?: { offset: number; branchOnTrue: boolean; branchBytes: number } },
+) {
+  // For v1-3, SAVE is a branch instruction. The decoder has already read the branch
+  // offset bytes and advanced PC past them. We need to save the PC pointing to those
+  // branch bytes (before they were read), so when we restore we can read and apply them.
+  //
+  // The decoder tells us exactly how many bytes it read via ctx.branchInfo.branchBytes.
+  let savedPC = vm.pc;
+
+  if (ctx.branchInfo) {
+    // Use the actual number of branch bytes read by the decoder
+    const branchBytes = ctx.branchInfo.branchBytes;
+
+    // Subtract the branch bytes to point to the start of the branch offset
+    savedPC = vm.pc - branchBytes;
+
+    if (vm.trace) {
+      console.log(`@save: PC=${vm.pc.toString(16)}, branchBytes=${branchBytes}, savedPC=${savedPC.toString(16)}`);
+    }
+  }
+
+  try {
+    const saveData = await vm.saveData(savedPC);
+
+    if (!saveData) {
+      if (vm.trace) {
+        console.log(`@save failed: could not generate save data`);
+      }
+      ctx.branch?.(false);
+      return;
+    }
+
+    // In Node.js environment, save to disk
+    if (vm.runtime === 'node') {
+      const { writeFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.qzl';
+      await writeFile(savePath, saveData);
+
+      if (vm.trace) {
+        console.log(`@save: saved to ${savePath}`);
+      }
+      ctx.branch?.(true);
+    } else if (vm.runtime === 'browser') {
+      // In browser environment, save to localStorage using game identifier
+      const header = vm.getHeader();
+      if (!header) {
+        if (vm.trace) {
+          console.log(`@save failed: could not get game header`);
+        }
+        ctx.branch?.(false);
+        return;
+      }
+
+      const gameIdentifier = `${header.release}.${header.serial}`;
+      const saveKey = `tszm-save-${gameIdentifier}`;
+
+      // Convert Buffer to base64 string for localStorage
+      const base64Data = saveData.toString('base64');
+      localStorage.setItem(saveKey, base64Data);
+
+      if (vm.trace) {
+        console.log(`@save: saved ${saveData.length} bytes to localStorage key "${saveKey}"`);
+      }
+      ctx.branch?.(true);
+    } else {
+      // In other environments, just indicate success
+      if (vm.trace) {
+        console.log(`@save: generated save data (${saveData.length} bytes) but not persisting (unknown environment)`);
+      }
+      ctx.branch?.(true);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@save failed: ${error}`);
+    }
+    ctx.branch?.(false);
+  }
+}
+
+export async function h_restore(
+  vm: any,
+  _operands: number[],
+  ctx: { branch?: (condition: boolean) => void },
+) {
+  // Restore game state (v1-3: 0OP, v4+: uses extended opcode with store)
+  try {
+    // In Node.js environment, load from disk
+    if (vm.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      const savePath = vm.filePath + '.qzl';
+
+      try {
+        const saveData = await readFile(savePath);
+
+        if (vm.trace) {
+          console.log(`@restore: loaded save file (${saveData.length} bytes), calling restoreFromSave...`);
+        }
+
+        const success = await vm.restoreFromSave(saveData);
+
+        if (success) {
+          if (vm.trace) {
+            console.log(`@restore: SUCCESS - restoreFromSave() succeeded, PC=${vm.pc.toString(16)}`);
+            console.log(`@restore: Returning from handler without calling ctx.branch (PC has been set by restoreFromSave)`);
+          }
+          // restoreFromSave() already read the branch bytes, applied the branch, and set PC correctly.
+          // The PC now points to the instruction after the SAVE's branch.
+          // Just continue execution from here (execution will continue at the next step()).
+          //
+          // IMPORTANT: We do NOT call ctx.branch() here, because restoreFromSave() has already
+          // modified the PC to point to the correct post-restore location.
+          return;
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: FAILED - restoreFromSave() returned false, calling ctx.branch(false)`);
+          }
+          ctx.branch?.(false);
+        }
+      } catch (fileError: any) {
+        if (fileError.code === 'ENOENT') {
+          if (vm.trace) {
+            console.log(`@restore: save file not found at ${savePath}`);
+          }
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: error reading save file: ${fileError}`);
+          }
+        }
+        ctx.branch?.(false);
+      }
+    } else if (vm.runtime === 'browser') {
+      // In browser environment, load from localStorage using game identifier
+      const header = vm.getHeader();
+      if (!header) {
+        if (vm.trace) {
+          console.log(`@restore failed: could not get game header`);
+        }
+        ctx.branch?.(false);
+        return;
+      }
+
+      const gameIdentifier = `${header.release}.${header.serial}`;
+      const saveKey = `tszm-save-${gameIdentifier}`;
+
+      try {
+        const base64Data = localStorage.getItem(saveKey);
+
+        if (!base64Data) {
+          if (vm.trace) {
+            console.log(`@restore: no save data found in localStorage for key "${saveKey}"`);
+          }
+          ctx.branch?.(false);
+          return;
+        }
+
+        // Convert base64 string back to Buffer
+        const saveData = Buffer.from(base64Data, 'base64');
+
+        const success = await vm.restoreFromSave(saveData);
+
+        if (success) {
+          if (vm.trace) {
+            console.log(`@restore: restored ${saveData.length} bytes from localStorage key "${saveKey}"`);
+          }
+
+          // restoreFromSave() already skipped the branch bytes and set PC correctly.
+          // Just continue execution from here (as if SAVE returned 0/false).
+        } else {
+          if (vm.trace) {
+            console.log(`@restore: failed to restore game state`);
+          }
+          ctx.branch?.(false);
+        }
+      } catch (storageError) {
+        if (vm.trace) {
+          console.log(`@restore: error reading from localStorage: ${storageError}`);
+        }
+        ctx.branch?.(false);
+      }
+    } else {
+      // In other environments, not yet implemented
+      if (vm.trace) {
+        console.log(`@restore: not implemented for unknown environment`);
+      }
+      ctx.branch?.(false);
+    }
+  } catch (error) {
+    if (vm.trace) {
+      console.log(`@restore failed: ${error}`);
+    }
+    ctx.branch?.(false);
+  }
 }

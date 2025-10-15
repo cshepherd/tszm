@@ -19,7 +19,7 @@ export interface DecodedInstr {
   operandInfo?: OperandInfo[]; // For trace/disassembly purposes
   // Dispatcher fills these according to desc.doesStore / doesBranch
   storeTarget?: number; // variable number to store into (if any)
-  branchInfo?: { offset: number; branchOnTrue: boolean };
+  branchInfo?: { offset: number; branchOnTrue: boolean; branchBytes: number };
 }
 
 export function decodeNext(vm: any): DecodedInstr {

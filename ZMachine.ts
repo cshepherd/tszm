@@ -44,18 +44,635 @@ class ZMachine {
     if (typeof process !== 'undefined' && process.versions?.node) {
       this.runtime = 'node';
     }
-    if( this.runtime == 'unknown' )
-      if(typeof navigator !== 'undefined' && navigator.product == 'ReactNative')
+    if( this.runtime === 'unknown' )
+      if(typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
         this.runtime = 'react-native';
   }
 
+  async rleBuffer(input: Buffer): Promise<Buffer> {
+    // Use an array to build output, then convert to Buffer at the end
+    const outputBuffer: number[] = [];
+    let inputIdx = 0;
+
+    while (inputIdx < input.length) {
+      const inByte = input.readUInt8(inputIdx);
+
+      if (inByte > 0) {
+        // Non-zero byte: just copy it to output
+        outputBuffer.push(inByte);
+        inputIdx++;
+      } else {
+        // Zero byte encountered: count the run of zeros
+        let zeroCount = 0;
+
+        // Count consecutive zeros (max 256 at a time)
+        while (inputIdx < input.length && input.readUInt8(inputIdx) === 0 && zeroCount < 256) {
+          zeroCount++;
+          inputIdx++;
+        }
+
+        // Write zero marker byte followed by length byte (count - 1)
+        // The length byte stores (count - 1), so 1 zero = 0x00, 256 zeros = 0xFF
+        outputBuffer.push(0);
+        outputBuffer.push(zeroCount - 1);
+      }
+    }
+
+    return Buffer.from(outputBuffer);
+  }
+
+  async saveData(pc: number): Promise<Buffer|null> {
+    let cleanMemory: Buffer | null = null;
+
+    // Load a fresh copy of the game file
+    if(this.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      cleanMemory = await readFile(this.filePath);
+    }
+    if(this.runtime === 'browser') {
+      const res = await fetch(this.filePath);
+      const arrayBuffer = await res.arrayBuffer();
+      cleanMemory = Buffer.from(arrayBuffer);
+    }
+
+    if(!cleanMemory || !this.memory || !this.header) {
+      return null;
+    }
+
+    // Create a buffer to hold the XOR'd bytes
+    // According to Quetzal spec, only save dynamic memory (up to static memory base)
+    const dynamicMemorySize = this.header.staticMemoryAddress;
+    const xorBuffer: number[] = [];
+    for(let idx = 0; idx < dynamicMemorySize; idx++) {
+      const cleanByte = cleanMemory.readUInt8(idx);
+      const dirtyByte = this.memory.readUInt8(idx);
+
+      xorBuffer.push(cleanByte ^ dirtyByte);
+    }
+
+    // Convert to Buffer and RLE encode it
+    const saveBuffer = Buffer.from(xorBuffer);
+    const rleBuffer = await this.rleBuffer(saveBuffer);
+
+    // Create 'CMem' chunk (compressed memory)
+    // IFF chunk format: 4-byte chunk type + 4-byte length (big-endian) + chunk data
+    const cmemType = Buffer.from('CMem', 'ascii'); // 4 bytes
+    const cmemLength = Buffer.alloc(4);
+    cmemLength.writeUInt32BE(rleBuffer.length, 0); // 4 bytes, big-endian
+    const cmemChunk = Buffer.concat([cmemType, cmemLength, rleBuffer]);
+
+    // Create 'Stks' chunk (Quetzal-compatible stack frames)
+    // Build frames from the call stack in "least recent first" order
+    const stackData: number[] = [];
+
+    // For versions 1-5, we need a dummy frame first with the user stack
+    // According to Quetzal spec: "For games which use the user stack (V1-5, V7-8),
+    // the first stack frame is a 'dummy' frame with both PC and flags zero.
+    // The evaluation stack for this frame holds the contents of the user stack."
+    // NOTE: In tszm, we don't separately track the user stack.
+    // Frotz seems to expect a minimal eval stack (4 words of 0x0001) in the dummy frame.
+    const needsDummyFrame = this.header.version <= 5 || this.header.version >= 7;
+    const dummyFrameEvalStack: number[] = needsDummyFrame ? [1, 1, 1, 1] : [];
+
+    // Parse the callStack to reconstruct frames
+    // IMPORTANT: Each callStack entry stores the state TO RESTORE when returning FROM the next frame
+    // Structure: returnPC, [storeVar], localVar1..N, localCount, frameMarker
+
+    // Step 1: Parse all callStack entries
+    interface CallStackEntry {
+      returnPC: number;
+      storeVar?: number;
+      locals: number[];
+    }
+
+    console.log(`\n=== SAVE: Parsing callStack (length=${this.callStack.length}) ===`);
+    console.log(`Current PC: 0x${pc.toString(16)}`);
+    console.log(`Current localVariables (${this.localVariables.length}): [${this.localVariables.map(v => '0x' + v.toString(16)).join(', ')}]`);
+
+    const callStackEntries: CallStackEntry[] = [];
+    let idx = this.callStack.length;
+
+    while (idx > 0) {
+      if (idx < 2) break;
+
+      const frameMarker = this.callStack[idx - 1];
+      const localCount = this.callStack[idx - 2];
+
+      // Validate frameMarker and localCount
+      if ((frameMarker !== 0 && frameMarker !== 1) || localCount < 0 || localCount > 15) {
+        if (this.trace) {
+          console.error(`saveData: Invalid frame marker=${frameMarker} or localCount=${localCount} at idx=${idx}`);
+        }
+        break;
+      }
+
+      idx -= 2; // Skip past localCount and frameMarker
+
+      // Extract local variables (reading backwards)
+      const locals: number[] = [];
+      for (let i = 0; i < localCount; i++) {
+        if (idx <= 0) {
+          console.error(`saveData: Ran out of callStack while reading locals at idx=${idx}`);
+          break;
+        }
+        locals.unshift(this.callStack[idx - 1]);
+        idx--;
+      }
+
+      // Extract storeVar if present
+      let storeVar: number | undefined;
+      if (frameMarker === 1) {
+        if (idx <= 0) {
+          console.error(`saveData: Ran out of callStack while reading storeVar at idx=${idx}`);
+          break;
+        }
+        storeVar = this.callStack[idx - 1];
+        idx--;
+      }
+
+      // Extract returnPC
+      if (idx <= 0) {
+        console.error(`saveData: Ran out of callStack while reading returnPC at idx=${idx}`);
+        break;
+      }
+      const returnPC = this.callStack[idx - 1];
+      idx--;
+
+      // Add to the BEGINNING since we're reading backwards
+      callStackEntries.unshift({
+        returnPC,
+        storeVar,
+        locals,
+      });
+
+      console.log(`CallStackEntry[${callStackEntries.length - 1}]: returnPC=0x${returnPC.toString(16)}, storeVar=${storeVar}, locals(${locals.length})=[${locals.map(v => '0x' + v.toString(16)).join(', ')}]`);
+    }
+
+    console.log(`\nTotal callStackEntries: ${callStackEntries.length}\n`);
+
+    // Step 2: Build Quetzal frames by correctly pairing returnPC/storeVar with locals
+
+    const frames: Array<{
+      returnPC: number;
+      storeVar?: number;
+      locals: number[];
+      evalStack: number[];
+      argsMask: number;
+    }> = [];
+
+    // Build frames with shifted locals
+    for (let i = 0; i < callStackEntries.length; i++) {
+      const entry = callStackEntries[i];
+
+      // Get locals from the NEXT entry (shifted forward by 1)
+      const nextEntry = i + 1 < callStackEntries.length ? callStackEntries[i + 1] : null;
+      const frameLocals = nextEntry ? nextEntry.locals : this.localVariables;
+
+      // The last frame is the current frame - it gets the eval stack
+      const isCurrentFrame = (i === callStackEntries.length - 1);
+
+      frames.push({
+        returnPC: entry.returnPC,
+        storeVar: entry.storeVar,
+        locals: frameLocals,
+        evalStack: isCurrentFrame ? [...this.stack] : [],
+        argsMask: 0,
+      });
+    }
+
+    // Write dummy frame first (if needed for V1-5, V7-8)
+    if (needsDummyFrame) {
+      // Dummy frame: returnPC=0, flags=0 (0 locals, no discard), storeVar=0, argsMask=0
+      stackData.push(0, 0, 0); // Return PC (3 bytes) = 0x000000
+      stackData.push(0); // Flags byte (pvvvv = 00000)
+      stackData.push(0); // Store variable
+      stackData.push(0); // Arguments supplied
+
+      // Evaluation stack size (2 bytes, big-endian) = user stack size
+      stackData.push((dummyFrameEvalStack.length >> 8) & 0xFF);
+      stackData.push(dummyFrameEvalStack.length & 0xFF);
+
+      // No local variables (localCount = 0)
+
+      // Evaluation stack contents = user stack
+      for (const stackVal of dummyFrameEvalStack) {
+        stackData.push((stackVal >> 8) & 0xFF);
+        stackData.push(stackVal & 0xFF);
+      }
+    }
+
+    // Write frames to stackData in Quetzal format
+    for (const frame of frames) {
+      // Return PC (3 bytes, big-endian)
+      stackData.push((frame.returnPC >> 16) & 0xFF);
+      stackData.push((frame.returnPC >> 8) & 0xFF);
+      stackData.push(frame.returnPC & 0xFF);
+
+      // Flags byte: 000pvvvv
+      // p = 1 if result is discarded (i.e., no store variable), 0 otherwise
+      // vvvv = number of local variables (0-15)
+      const localCount = frame.locals.length & 0x0F;
+      const discardResult = frame.storeVar === undefined ? 1 : 0;
+      const flags = (discardResult << 4) | localCount;
+      stackData.push(flags);
+
+      // Store variable (1 byte)
+      stackData.push(frame.storeVar ?? 0);
+
+      // Arguments supplied (1 byte) - bitmap gfedcba where each bit indicates if arg is present
+      // We don't currently track this, so set to 0
+      stackData.push(frame.argsMask);
+
+      // Evaluation stack size (2 bytes, big-endian)
+      const evalStackSize = frame.evalStack.length;
+      stackData.push((evalStackSize >> 8) & 0xFF);
+      stackData.push(evalStackSize & 0xFF);
+
+      // Local variables (vvvv words, each 2 bytes big-endian)
+      for (const localVar of frame.locals) {
+        stackData.push((localVar >> 8) & 0xFF);
+        stackData.push(localVar & 0xFF);
+      }
+
+      // Evaluation stack contents (evalStackSize words, each 2 bytes big-endian)
+      for (const stackVal of frame.evalStack) {
+        stackData.push((stackVal >> 8) & 0xFF);
+        stackData.push(stackVal & 0xFF);
+      }
+    }
+
+    const stackBuffer = Buffer.from(stackData);
+    const stksType = Buffer.from('Stks', 'ascii'); // 4 bytes
+    const stksLength = Buffer.alloc(4);
+    stksLength.writeUInt32BE(stackBuffer.length, 0); // 4 bytes, big-endian
+    const stksChunk = Buffer.concat([stksType, stksLength, stackBuffer]);
+
+    // Create 'IFhd' chunk (header information, fixed 13 bytes)
+    const ifhdData: number[] = [];
+
+    // 2-byte release number (big-endian)
+    ifhdData.push((this.header.release >> 8) & 0xFF);
+    ifhdData.push(this.header.release & 0xFF);
+
+    // 6-byte serial number (ASCII string, pad or truncate to 6 bytes)
+    const serialBytes = Buffer.from(this.header.serial.padEnd(6, '\0').slice(0, 6), 'ascii');
+    for (let i = 0; i < 6; i++) {
+      ifhdData.push(serialBytes[i]);
+    }
+
+    // 2-byte checksum (big-endian)
+    ifhdData.push((this.header.checksum >> 8) & 0xFF);
+    ifhdData.push(this.header.checksum & 0xFF);
+
+    // 3-byte program counter (big-endian, only use lower 24 bits)
+    const pcHigh = (pc >> 16) & 0xFF;
+    const pcMid = (pc >> 8) & 0xFF;
+    const pcLow = pc & 0xFF;
+    ifhdData.push(pcHigh);  // highest byte
+    ifhdData.push(pcMid);   // middle byte
+    ifhdData.push(pcLow);   // lowest byte
+
+    const ifhdBuffer = Buffer.from(ifhdData);
+    const ifhdType = Buffer.from('IFhd', 'ascii'); // 4 bytes
+    const ifhdLength = Buffer.alloc(4);
+    ifhdLength.writeUInt32BE(13, 0); // Fixed length: 13 bytes
+    const ifhdChunk = Buffer.concat([ifhdType, ifhdLength, ifhdBuffer]);
+
+    // Add padding to chunks if needed (IFF requires even-byte alignment)
+    const ifhdPadding = ifhdBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+    const cmemPadding = rleBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+    const stksPadding = stackBuffer.length % 2 === 1 ? Buffer.from([0]) : Buffer.from([]);
+
+    // Combine all chunks with padding
+    const allChunks = Buffer.concat([
+      ifhdChunk, ifhdPadding,
+      cmemChunk, cmemPadding,
+      stksChunk, stksPadding
+    ]);
+
+    // Create FORM wrapper (required by Quetzal spec)
+    // FORM format: 'FORM' + size (4 bytes, big-endian) + 'IFZS' + chunks
+    const formType = Buffer.from('FORM', 'ascii'); // 4 bytes
+    const ifzsType = Buffer.from('IFZS', 'ascii'); // 4 bytes
+    const formSize = Buffer.alloc(4);
+    // Size includes IFZS (4 bytes) + all chunks with padding
+    formSize.writeUInt32BE(4 + allChunks.length, 0);
+
+    const iffFile = Buffer.concat([formType, formSize, ifzsType, allChunks]);
+
+    return iffFile;
+  }
+
+  async restoreFromSave(saveData: Buffer): Promise<boolean> {
+    // Load a fresh copy of the game file to restore modified memory
+    let cleanMemory: Buffer | null = null;
+
+    if(this.runtime === 'node') {
+      const { readFile } = await import('fs/promises');
+      cleanMemory = await readFile(this.filePath);
+    }
+    if(this.runtime === 'browser') {
+      const res = await fetch(this.filePath);
+      const arrayBuffer = await res.arrayBuffer();
+      cleanMemory = Buffer.from(arrayBuffer);
+    }
+
+    if(!cleanMemory || !this.header) {
+      return false;
+    }
+
+    // Parse IFF chunks
+    let offset = 0;
+    let ifhdData: Buffer | null = null;
+    let cmemData: Buffer | null = null;
+    let stksData: Buffer | null = null;
+
+    // Check for FORM wrapper (required by Quetzal spec, but support files without it for backwards compat)
+    if (saveData.length >= 12 && saveData.toString('ascii', 0, 4) === 'FORM') {
+      // Verify IFZS type
+      const formType = saveData.toString('ascii', 8, 12);
+      if (formType !== 'IFZS') {
+        console.error(`Invalid FORM type: expected IFZS, got ${formType}`);
+        return false;
+      }
+      // Skip FORM header (4 bytes) + size (4 bytes) + IFZS (4 bytes) = 12 bytes
+      offset = 12;
+    }
+
+    while (offset < saveData.length) {
+      // Read chunk type (4 bytes)
+      if (offset + 8 > saveData.length) break;
+
+      const chunkType = saveData.toString('ascii', offset, offset + 4);
+      offset += 4;
+
+      // Read chunk length (4 bytes, big-endian)
+      const chunkLength = saveData.readUInt32BE(offset);
+      offset += 4;
+
+      // Read chunk data
+      if (offset + chunkLength > saveData.length) break;
+      const chunkData = saveData.subarray(offset, offset + chunkLength);
+      offset += chunkLength;
+
+      // IFF chunks are padded to even byte boundaries
+      if (chunkLength % 2 === 1) {
+        offset += 1; // Skip padding byte
+      }
+
+      // Store chunk data based on type
+      if (chunkType === 'IFhd') {
+        ifhdData = chunkData;
+      } else if (chunkType === 'CMem') {
+        cmemData = chunkData;
+      } else if (chunkType === 'Stks') {
+        stksData = chunkData;
+      }
+    }
+
+    // Validate we have all required chunks
+    if (!ifhdData || !cmemData || !stksData) {
+      console.error('Missing required chunks in save file');
+      return false;
+    }
+
+    // Parse IFhd chunk (13 bytes)
+    const savedRelease = ifhdData.readUInt16BE(0);
+    const savedSerial = ifhdData.toString('ascii', 2, 8).replace(/\0/g, '');
+    const savedChecksum = ifhdData.readUInt16BE(8);
+
+    const savedPC = (ifhdData.readUInt8(10) << 16) | (ifhdData.readUInt8(11) << 8) | ifhdData.readUInt8(12);
+
+    // Validate against current game file
+    if (this.header.release !== savedRelease ||
+        this.header.serial !== savedSerial ||
+        this.header.checksum !== savedChecksum) {
+      console.error('Save file does not match current game file');
+      return false;
+    }
+
+    // Decode RLE compressed memory from CMem chunk
+    const decompressedXor: number[] = [];
+    let cmemIdx = 0;
+
+    while (cmemIdx < cmemData.length) {
+      const byte = cmemData.readUInt8(cmemIdx);
+      cmemIdx++;
+
+      if (byte > 0) {
+        // Non-zero byte: add it directly
+        decompressedXor.push(byte);
+      } else {
+        // Zero byte: read length and expand
+        if (cmemIdx >= cmemData.length) break;
+        const length = cmemData.readUInt8(cmemIdx);
+        cmemIdx++;
+
+        // Length byte contains (count - 1), so actual count is length + 1
+        // We output (length + 1) zeros total
+        const zeroCount = length + 1;
+        for (let i = 0; i < zeroCount; i++) {
+          decompressedXor.push(0);
+        }
+      }
+    }
+
+    // Restore memory by XORing decompressed data with clean memory
+    this.memory = Buffer.from(cleanMemory);
+    const dynamicMemorySize = this.header.staticMemoryAddress;
+
+    // Verify decompressed data size
+    if (decompressedXor.length > dynamicMemorySize) {
+      console.error(`Decompressed save data size (${decompressedXor.length}) is larger than dynamic memory size (${dynamicMemorySize})`);
+      return false;
+    }
+
+    // Some interpreters (like Frotz) optimize saves by omitting trailing zeros
+    // If the decompressed data is shorter, pad with zeros (meaning unchanged bytes)
+    if (decompressedXor.length < dynamicMemorySize) {
+      const paddingNeeded = dynamicMemorySize - decompressedXor.length;
+      if (this.trace) {
+        console.log(`CMem is ${decompressedXor.length} bytes, padding with ${paddingNeeded} zeros to reach ${dynamicMemorySize} bytes`);
+      }
+      for (let i = 0; i < paddingNeeded; i++) {
+        decompressedXor.push(0);
+      }
+    }
+
+    // Apply XOR to restore memory
+    for (let idx = 0; idx < dynamicMemorySize; idx++) {
+      const xorByte = decompressedXor[idx];
+      const cleanByte = cleanMemory.readUInt8(idx);
+      this.memory.writeUInt8(cleanByte ^ xorByte, idx);
+    }
+
+
+    // Parse Stks chunk (Quetzal-compatible stack frames)
+    // Frame format: returnPC (3 bytes), flags (1 byte), storeVar (1 byte),
+    //               argsMask (1 byte), evalStackSize (2 bytes),
+    //               locals (vvvv * 2 bytes), evalStack (size * 2 bytes)
+    let stksIdx = 0;
+    const frames: Array<{
+      returnPC: number;
+      flags: number;
+      storeVar: number | undefined;
+      argsMask: number;
+      locals: number[];
+      evalStack: number[];
+    }> = [];
+
+    while (stksIdx < stksData.length) {
+      // Need at least 8 bytes for frame header
+      if (stksIdx + 8 > stksData.length) break;
+
+      // Return PC (3 bytes, big-endian)
+      const returnPC = (stksData.readUInt8(stksIdx) << 16) |
+                       (stksData.readUInt8(stksIdx + 1) << 8) |
+                       stksData.readUInt8(stksIdx + 2);
+      stksIdx += 3;
+
+      // Flags byte (000pvvvv)
+      const flags = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      const discardResult = (flags >> 4) & 0x01;
+      const localCount = flags & 0x0F;
+
+      // Store variable (1 byte)
+      const storeVar = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      // Arguments supplied (1 byte)
+      const argsMask = stksData.readUInt8(stksIdx);
+      stksIdx++;
+
+      // Evaluation stack size (2 bytes, big-endian)
+      const evalStackSize = stksData.readUInt16BE(stksIdx);
+      stksIdx += 2;
+
+      // Local variables (localCount words, each 2 bytes)
+      const locals: number[] = [];
+      for (let i = 0; i < localCount; i++) {
+        if (stksIdx + 2 > stksData.length) break;
+        const localVal = stksData.readUInt16BE(stksIdx);
+        locals.push(localVal);
+        stksIdx += 2;
+      }
+
+      // Evaluation stack (evalStackSize words, each 2 bytes)
+      const evalStack: number[] = [];
+      for (let i = 0; i < evalStackSize; i++) {
+        if (stksIdx + 2 > stksData.length) break;
+        const stackVal = stksData.readUInt16BE(stksIdx);
+        evalStack.push(stackVal);
+        stksIdx += 2;
+      }
+
+      frames.push({
+        returnPC,
+        flags,
+        storeVar: discardResult ? undefined : storeVar,
+        argsMask,
+        locals,
+        evalStack,
+      });
+    }
+
+    // Handle the dummy frame if present (first frame with returnPC=0)
+    // For V1-5 games, the dummy frame's eval stack contains the user stack
+    let frameIdx = 0;
+    let userStack: number[] = [];
+    if (frames.length > 0 && frames[0].returnPC === 0) {
+      // Extract user stack from dummy frame
+      userStack = frames[0].evalStack;
+      frameIdx = 1; // Skip dummy frame when processing call frames
+    }
+
+    // Rebuild callStack from frames
+    // Our callStack structure: returnPC, [storeVar], local1..N, localCount, frameMarker
+    // IMPORTANT: Each callStack entry stores the PREVIOUS frame's locals (to restore when returning)
+    this.callStack = [];
+
+    for (let i = frameIdx; i < frames.length - 1; i++) {
+      const frame = frames[i];
+      const nextFrame = frames[i + 1];
+
+      // Push the NEXT frame's return PC and store var
+      // (because this entry is for returning FROM the next frame TO this frame)
+      this.callStack.push(nextFrame.returnPC);
+
+      const frameMarker = nextFrame.storeVar !== undefined ? 1 : 0;
+      if (frameMarker === 1 && nextFrame.storeVar !== undefined) {
+        this.callStack.push(nextFrame.storeVar);
+      }
+
+      // Push THIS frame's locals (which will be restored when returning from next frame)
+      for (const local of frame.locals) {
+        this.callStack.push(local);
+      }
+
+      // Push local count and frame marker
+      this.callStack.push(frame.locals.length);
+      this.callStack.push(frameMarker);
+    }
+
+    // Last frame is the current frame (if any frames exist after dummy)
+    if (frames.length > frameIdx) {
+      const currentFrame = frames[frames.length - 1];
+      this.localVariables = currentFrame.locals;
+      // For V1-5 games, use the user stack from the dummy frame
+      // Otherwise, use the current frame's eval stack
+      this.stack = userStack.length > 0 ? userStack : currentFrame.evalStack;
+
+      // IMPORTANT: Use PC from IFhd, not from the frame's returnPC!
+      // The frame's returnPC is where we'll return to when this routine exits.
+      // The current execution point is in IFhd.
+      this.pc = savedPC;
+
+      // Note: We don't push the current frame onto callStack because it's the active frame.
+      // The callStack already contains entries for all previous frames from the loop above.
+    } else {
+      // No frames, reset to initial state
+      this.localVariables = [];
+      this.stack = userStack.length > 0 ? userStack : [];
+      this.pc = savedPC;
+    }
+
+    // After restoring, the PC points to the branch offset bytes of the original SAVE instruction.
+    // According to the Z-Machine spec (§6.3.3), after RESTORE succeeds:
+    // - In V1-3: SAVE is a branch instruction. After RESTORE, it should branch as if SAVE returned 2
+    //   (not 0 or 1). The value 2 indicates "game was just restored".
+    // - Since 2 is non-zero (true), the branch should be taken if branchOnTrue is true.
+    //
+    // So we need to:
+    // 1. Read the branch offset bytes (advancing PC past them)
+    // 2. Apply the branch as if SAVE returned 2 (non-zero/true)
+    const branchInfo = this._readBranchOffset();
+
+    if (this.trace) {
+      console.log(`Restored from save: PC before branch=${savedPC.toString(16)}, after reading branch=${this.pc.toString(16)}`);
+      console.log(`Branch info: offset=${branchInfo.offset}, branchOnTrue=${branchInfo.branchOnTrue}`);
+    }
+
+    // Apply the branch as if SAVE returned 2 (non-zero, i.e., true)
+    // This means: if branchOnTrue is true, do branch (condition is true)
+    //            if branchOnTrue is false, don't branch (condition is true)
+    this._applyBranch(branchInfo.offset, branchInfo.branchOnTrue, true);
+
+    if (this.trace) {
+      console.log(`Restored from save: final PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
+    }
+
+    return true;
+  }
+
   async load() {
-    if(this.runtime == 'node') {
+    if(this.runtime === 'node') {
       // Dynamically import fs/promises only in Node.js environment
       const { readFile } = await import('fs/promises');
       this.memory = await readFile(this.filePath);
     }
-    if(this.runtime == 'browser') {
+    if(this.runtime === 'browser') {
       const res = await fetch(this.filePath);
       const arrayBuffer = await res.arrayBuffer();
       this.memory = Buffer.from(arrayBuffer);
@@ -206,7 +823,7 @@ class ZMachine {
 
   getVariableValue(variableNumber: number): any {
     // Variable 0: SP
-    if (variableNumber == 0) {
+    if (variableNumber === 0) {
       return this.stack.pop();
     }
     if (variableNumber < 16) {
@@ -220,7 +837,7 @@ class ZMachine {
 
   setVariableValue(variableNumber: number, value: number): any {
     // Variable 0: SP
-    if (variableNumber == 0) {
+    if (variableNumber === 0) {
       // Z-Machine values are 16-bit, mask before pushing to stack
       return this.stack.push(value & 0xffff);
     }
@@ -446,16 +1063,18 @@ class ZMachine {
     return types;
   }
 
-  _readBranchOffset(): { offset: number; branchOnTrue: boolean } {
+  _readBranchOffset(): { offset: number; branchOnTrue: boolean; branchBytes: number } {
     if (!this.memory) throw new Error("Memory not loaded");
     const firstByte = this._fetchByte();
     const branchOnTrue = (firstByte & 0x80) !== 0;
     const singleByte = (firstByte & 0x40) !== 0;
 
     let offset: number;
+    let branchBytes: number;
     if (singleByte) {
       // 6-bit offset (0-63)
       offset = firstByte & 0x3f;
+      branchBytes = 1;
     } else {
       // 14-bit offset (signed)
       const secondByte = this._fetchByte();
@@ -465,8 +1084,9 @@ class ZMachine {
         // Convert to proper signed integer: 14-bit negative -> JavaScript negative
         offset = offset - 0x4000;
       }
+      branchBytes = 2;
     }
-    return { offset, branchOnTrue };
+    return { offset, branchOnTrue, branchBytes };
   }
 
   /**
@@ -547,6 +1167,8 @@ class ZMachine {
       const { offset, branchOnTrue } = di.branchInfo;
       ctx.branch = (cond: boolean) =>
         this._applyBranch(offset, branchOnTrue, cond);
+      // Also expose the branchInfo to handlers that need it (like h_save)
+      (ctx as any).branchInfo = di.branchInfo;
     }
 
     // Execute
@@ -599,7 +1221,6 @@ class ZMachine {
     }
 
     do {
-      const wordAddr = this.pc;
       const firstByte = this.memory.readUInt8(this.pc);
       const secondByte = this.memory.readUInt8(this.pc + 1);
       this.advancePC(2);
@@ -679,7 +1300,7 @@ class ZMachine {
         }
 
         // Handle special z-characters
-        if (zchar == 0) {
+        if (zchar === 0) {
           result += " ";
           continue;
         }
@@ -696,21 +1317,21 @@ class ZMachine {
           }
         }
 
-        if (zchar == 4) {
+        if (zchar === 4) {
           // Shift to A1 (uppercase) for one character
           oneShift = currentTable; // Save current alphabet
           currentTable = 1;
           continue;
         }
 
-        if (zchar == 5) {
+        if (zchar === 5) {
           // Shift to A2 (punctuation) for one character
           oneShift = currentTable; // Save current alphabet
           currentTable = 2;
           continue;
         }
 
-        if (zchar == 6 && currentTable == 2) {
+        if (zchar === 6 && currentTable === 2) {
           // Special case: z-char 6 in A2 means ZSCII escape
           // Next two z-chars form a 10-bit ZSCII character code
           if (this.trace) {
