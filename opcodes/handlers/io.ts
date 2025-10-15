@@ -463,21 +463,18 @@ export async function h_read_char(
 export async function h_save(
   vm: any,
   _operands: number[],
-  ctx: { branch?: (condition: boolean) => void; branchInfo?: { offset: number; branchOnTrue: boolean } },
+  ctx: { branch?: (condition: boolean) => void; branchInfo?: { offset: number; branchOnTrue: boolean; branchBytes: number } },
 ) {
   // For v1-3, SAVE is a branch instruction. The decoder has already read the branch
   // offset bytes and advanced PC past them. We need to save the PC pointing to those
   // branch bytes (before they were read), so when we restore we can read and apply them.
   //
-  // The branch offset is either 1 byte (if bit 6 of first byte is set) or 2 bytes.
-  // We can determine this by checking the branchInfo passed by the decoder.
+  // The decoder tells us exactly how many bytes it read via ctx.branchInfo.branchBytes.
   let savedPC = vm.pc;
 
   if (ctx.branchInfo) {
-    // Calculate how many bytes the branch offset took
-    // If offset fits in 6 bits (0-63), it's 1 byte. Otherwise it's 2 bytes.
-    const offsetFitsInOneByte = ctx.branchInfo.offset >= 0 && ctx.branchInfo.offset <= 63;
-    const branchBytes = offsetFitsInOneByte ? 1 : 2;
+    // Use the actual number of branch bytes read by the decoder
+    const branchBytes = ctx.branchInfo.branchBytes;
 
     // Subtract the branch bytes to point to the start of the branch offset
     savedPC = vm.pc - branchBytes;
@@ -501,7 +498,7 @@ export async function h_save(
     // In Node.js environment, save to disk
     if (vm.runtime === 'node') {
       const { writeFile } = await import('fs/promises');
-      const savePath = vm.filePath + '.quetzal';
+      const savePath = vm.filePath + '.qzl';
       await writeFile(savePath, saveData);
 
       if (vm.trace) {
@@ -555,19 +552,32 @@ export async function h_restore(
     // In Node.js environment, load from disk
     if (vm.runtime === 'node') {
       const { readFile } = await import('fs/promises');
-      const savePath = vm.filePath + '.quetzal';
+      const savePath = vm.filePath + '.qzl';
 
       try {
         const saveData = await readFile(savePath);
 
+        if (vm.trace) {
+          console.log(`@restore: loaded save file (${saveData.length} bytes), calling restoreFromSave...`);
+        }
+
         const success = await vm.restoreFromSave(saveData);
 
         if (success) {
-          // restoreFromSave() already skipped the branch bytes and set PC correctly.
-          // Just continue execution from here (as if SAVE returned 0/false).
+          if (vm.trace) {
+            console.log(`@restore: SUCCESS - restoreFromSave() succeeded, PC=${vm.pc.toString(16)}`);
+            console.log(`@restore: Returning from handler without calling ctx.branch (PC has been set by restoreFromSave)`);
+          }
+          // restoreFromSave() already read the branch bytes, applied the branch, and set PC correctly.
+          // The PC now points to the instruction after the SAVE's branch.
+          // Just continue execution from here (execution will continue at the next step()).
+          //
+          // IMPORTANT: We do NOT call ctx.branch() here, because restoreFromSave() has already
+          // modified the PC to point to the correct post-restore location.
+          return;
         } else {
           if (vm.trace) {
-            console.log(`@restore: failed to restore game state`);
+            console.log(`@restore: FAILED - restoreFromSave() returned false, calling ctx.branch(false)`);
           }
           ctx.branch?.(false);
         }
