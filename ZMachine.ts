@@ -138,23 +138,6 @@ class ZMachine {
     // Parse the callStack to reconstruct frames
     // IMPORTANT: Each callStack entry stores the state TO RESTORE when returning FROM the next frame
     // Structure: returnPC, [storeVar], localVar1..N, localCount, frameMarker
-    //
-    // Example: If we have Frames 0, 1, 2 (current):
-    //   callStack[0] = returnPC/storeVar for Frame 1, locals for Frame 0
-    //   callStack[1] = returnPC/storeVar for Frame 2, locals for Frame 1
-    //   Current frame (Frame 2) locals are in this.localVariables
-    //
-    // To build Quetzal frames, we need:
-    //   Frame 0: returnPC/storeVar from callStack[0], locals from ??? (bottom frame has no saved locals!)
-    //   Frame 1: returnPC/storeVar from callStack[1], locals from callStack[0]
-    //   Frame 2: returnPC from current PC, no storeVar, locals from callStack[1]
-    //
-    // Actually, looking more carefully: Frame 0's locals WERE saved on callStack[0]!
-    // The confusion is that callStack[0] describes "how to return from Frame 1 to Frame 0",
-    // which includes Frame 0's locals (to restore them).
-    // So Frame 0 is the first frame called from the main program.
-    //
-    // Let me parse all callStack entries first, then correctly pair them for Quetzal frames.
 
     // Step 1: Parse all callStack entries
     interface CallStackEntry {
@@ -229,45 +212,6 @@ class ZMachine {
     console.log(`\nTotal callStackEntries: ${callStackEntries.length}\n`);
 
     // Step 2: Build Quetzal frames by correctly pairing returnPC/storeVar with locals
-    //
-    // Based on restore logic (lines 568-589), when restoring with frameIdx=1 (skipping dummy):
-    //   Loop from i=1 to i<frames.length-1
-    //   At i: pushes frames[i+1].returnPC/storeVar and frames[i].locals
-    //
-    // So callStackEntry[0] = {returnPC: Quetzal frames[2].returnPC/storeVar, locals: Quetzal frames[1].locals}
-    //    callStackEntry[1] = {returnPC: Quetzal frames[3].returnPC/storeVar, locals: Quetzal frames[2].locals}
-    //    ...
-    //
-    // To reverse this for saving:
-    //   Quetzal frames[1]: returnPC/storeVar from callStackEntry[0], locals from callStackEntry[0]
-    //   Quetzal frames[2]: returnPC/storeVar from callStackEntry[0], locals from callStackEntry[1]
-    //   Quetzal frames[3]: returnPC/storeVar from callStackEntry[1], locals from callStackEntry[2]
-    //
-    // Wait, that gives frames[1] and frames[2] the same returnPC! That's wrong.
-    //
-    // Let me reconsider. If callStackEntry[0] has frames[2]'s returnPC and frames[1]'s locals,
-    // then frames[1] gets its locals from entry[0], and frames[2] gets its returnPC from entry[0].
-    // But frames[1]'s returnPC must come from somewhere else!
-    //
-    // Actually, I think the issue is simpler: our callStackEntry[i] represents the state for
-    // "returning FROM frame i+2 TO frame i+1" (with frameIdx=1 offset).
-    //
-    // Let me just implement what the comparison shows empirically:
-    // - tszm Frame i currently gets locals from entry[i]
-    // - tszm Frame i SHOULD get locals from entry[i+1]
-    //
-    // So the fix is: shift locals forward by one position!
-    //
-    // From empirical observation: tszm Frame i has locals from entry[i], but should have locals from entry[i+1]
-    //
-    // This makes sense given the restore logic:
-    //   callStackEntry[i] = {returnPC: frames[i+2].returnPC, storeVar: frames[i+2].storeVar, locals: frames[i+1].locals}
-    //                                                                                                   ^^^^^^^^^^^^^^^^^^
-    // So to build frames from entries:
-    //   Quetzal frames[i+1]: returnPC/storeVar from entry[?], locals from entry[i]
-    //
-    // Let me just implement the empirical fix: each frame gets returnPC/storeVar from its entry,
-    // but locals from the NEXT entry.
 
     const frames: Array<{
       returnPC: number;
@@ -294,25 +238,6 @@ class ZMachine {
       });
     }
 
-    // DON'T add the current frame!
-    // The current frame is the one executing SAVE, and according to the Quetzal spec and
-    // how Frotz handles it, the current frame should NOT be in the saved frames list.
-    // The PC in IFhd represents the current execution point, and when we RESTORE, we
-    // set PC from IFhd and continue execution from there. We don't need a frame for it.
-    //
-    // Actually, wait - let me reconsider. Looking at the restore loop (lines 571-592),
-    // it processes frames from frameIdx to frames.length-1, and the LAST frame is treated
-    // as the current frame. So we DO need to include it!
-    //
-    // But the issue is what returnPC to use. Let me check the callStack to see if there's
-    // a returnPC for the current frame stored there...
-    //
-    // Actually, the callStack stores returnPCs for returning FROM child frames TO parent frames.
-    // The TOPMOST callStack entry has the returnPC for returning from the CURRENT frame.
-    // But we already processed all callStack entries and built frames from them!
-    //
-    // Let me check: if we have 3 callStack entries, we build 3 frames from them. Then we
-    // add a 4th frame (current frame) with returnPC=pc. But that's wrong!
     //
     // The correct approach: The LAST callStack entry contains the returnPC for the current frame!
     // So the current frame's returnPC should come from the last callStack entry!
