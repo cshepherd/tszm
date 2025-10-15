@@ -498,7 +498,7 @@ export async function h_save(
     // In Node.js environment, save to disk
     if (vm.runtime === 'node') {
       const { writeFile } = await import('fs/promises');
-      const savePath = vm.filePath + '.quetzal';
+      const savePath = vm.filePath + '.qzl';
       await writeFile(savePath, saveData);
 
       if (vm.trace) {
@@ -552,7 +552,7 @@ export async function h_restore(
     // In Node.js environment, load from disk
     if (vm.runtime === 'node') {
       const { readFile } = await import('fs/promises');
-      const savePath = vm.filePath + '.quetzal';
+      const savePath = vm.filePath + '.qzl';
 
       try {
         const saveData = await readFile(savePath);
