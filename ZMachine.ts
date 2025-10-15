@@ -136,8 +136,139 @@ class ZMachine {
     }
 
     // Parse the callStack to reconstruct frames
-    // Our callStack structure (from bottom up): returnPC, [storeVar], localVar1..N, localCount, frameMarker
-    // We need to walk through and build Quetzal frames
+    // IMPORTANT: Each callStack entry stores the state TO RESTORE when returning FROM the next frame
+    // Structure: returnPC, [storeVar], localVar1..N, localCount, frameMarker
+    //
+    // Example: If we have Frames 0, 1, 2 (current):
+    //   callStack[0] = returnPC/storeVar for Frame 1, locals for Frame 0
+    //   callStack[1] = returnPC/storeVar for Frame 2, locals for Frame 1
+    //   Current frame (Frame 2) locals are in this.localVariables
+    //
+    // To build Quetzal frames, we need:
+    //   Frame 0: returnPC/storeVar from callStack[0], locals from ??? (bottom frame has no saved locals!)
+    //   Frame 1: returnPC/storeVar from callStack[1], locals from callStack[0]
+    //   Frame 2: returnPC from current PC, no storeVar, locals from callStack[1]
+    //
+    // Actually, looking more carefully: Frame 0's locals WERE saved on callStack[0]!
+    // The confusion is that callStack[0] describes "how to return from Frame 1 to Frame 0",
+    // which includes Frame 0's locals (to restore them).
+    // So Frame 0 is the first frame called from the main program.
+    //
+    // Let me parse all callStack entries first, then correctly pair them for Quetzal frames.
+
+    // Step 1: Parse all callStack entries
+    interface CallStackEntry {
+      returnPC: number;
+      storeVar?: number;
+      locals: number[];
+    }
+
+    console.log(`\n=== SAVE: Parsing callStack (length=${this.callStack.length}) ===`);
+    console.log(`Current PC: 0x${pc.toString(16)}`);
+    console.log(`Current localVariables (${this.localVariables.length}): [${this.localVariables.map(v => '0x' + v.toString(16)).join(', ')}]`);
+
+    const callStackEntries: CallStackEntry[] = [];
+    let idx = this.callStack.length;
+
+    while (idx > 0) {
+      if (idx < 2) break;
+
+      const frameMarker = this.callStack[idx - 1];
+      const localCount = this.callStack[idx - 2];
+
+      // Validate frameMarker and localCount
+      if ((frameMarker !== 0 && frameMarker !== 1) || localCount < 0 || localCount > 15) {
+        if (this.trace) {
+          console.error(`saveData: Invalid frame marker=${frameMarker} or localCount=${localCount} at idx=${idx}`);
+        }
+        break;
+      }
+
+      idx -= 2; // Skip past localCount and frameMarker
+
+      // Extract local variables (reading backwards)
+      const locals: number[] = [];
+      for (let i = 0; i < localCount; i++) {
+        if (idx <= 0) {
+          console.error(`saveData: Ran out of callStack while reading locals at idx=${idx}`);
+          break;
+        }
+        locals.unshift(this.callStack[idx - 1]);
+        idx--;
+      }
+
+      // Extract storeVar if present
+      let storeVar: number | undefined;
+      if (frameMarker === 1) {
+        if (idx <= 0) {
+          console.error(`saveData: Ran out of callStack while reading storeVar at idx=${idx}`);
+          break;
+        }
+        storeVar = this.callStack[idx - 1];
+        idx--;
+      }
+
+      // Extract returnPC
+      if (idx <= 0) {
+        console.error(`saveData: Ran out of callStack while reading returnPC at idx=${idx}`);
+        break;
+      }
+      const returnPC = this.callStack[idx - 1];
+      idx--;
+
+      // Add to the BEGINNING since we're reading backwards
+      callStackEntries.unshift({
+        returnPC,
+        storeVar,
+        locals,
+      });
+
+      console.log(`CallStackEntry[${callStackEntries.length - 1}]: returnPC=0x${returnPC.toString(16)}, storeVar=${storeVar}, locals(${locals.length})=[${locals.map(v => '0x' + v.toString(16)).join(', ')}]`);
+    }
+
+    console.log(`\nTotal callStackEntries: ${callStackEntries.length}\n`);
+
+    // Step 2: Build Quetzal frames by correctly pairing returnPC/storeVar with locals
+    //
+    // Based on restore logic (lines 568-589), when restoring with frameIdx=1 (skipping dummy):
+    //   Loop from i=1 to i<frames.length-1
+    //   At i: pushes frames[i+1].returnPC/storeVar and frames[i].locals
+    //
+    // So callStackEntry[0] = {returnPC: Quetzal frames[2].returnPC/storeVar, locals: Quetzal frames[1].locals}
+    //    callStackEntry[1] = {returnPC: Quetzal frames[3].returnPC/storeVar, locals: Quetzal frames[2].locals}
+    //    ...
+    //
+    // To reverse this for saving:
+    //   Quetzal frames[1]: returnPC/storeVar from callStackEntry[0], locals from callStackEntry[0]
+    //   Quetzal frames[2]: returnPC/storeVar from callStackEntry[0], locals from callStackEntry[1]
+    //   Quetzal frames[3]: returnPC/storeVar from callStackEntry[1], locals from callStackEntry[2]
+    //
+    // Wait, that gives frames[1] and frames[2] the same returnPC! That's wrong.
+    //
+    // Let me reconsider. If callStackEntry[0] has frames[2]'s returnPC and frames[1]'s locals,
+    // then frames[1] gets its locals from entry[0], and frames[2] gets its returnPC from entry[0].
+    // But frames[1]'s returnPC must come from somewhere else!
+    //
+    // Actually, I think the issue is simpler: our callStackEntry[i] represents the state for
+    // "returning FROM frame i+2 TO frame i+1" (with frameIdx=1 offset).
+    //
+    // Let me just implement what the comparison shows empirically:
+    // - tszm Frame i currently gets locals from entry[i]
+    // - tszm Frame i SHOULD get locals from entry[i+1]
+    //
+    // So the fix is: shift locals forward by one position!
+    //
+    // From empirical observation: tszm Frame i has locals from entry[i], but should have locals from entry[i+1]
+    //
+    // This makes sense given the restore logic:
+    //   callStackEntry[i] = {returnPC: frames[i+2].returnPC, storeVar: frames[i+2].storeVar, locals: frames[i+1].locals}
+    //                                                                                                   ^^^^^^^^^^^^^^^^^^
+    // So to build frames from entries:
+    //   Quetzal frames[i+1]: returnPC/storeVar from entry[?], locals from entry[i]
+    //
+    // Let me just implement the empirical fix: each frame gets returnPC/storeVar from its entry,
+    // but locals from the NEXT entry.
+
     const frames: Array<{
       returnPC: number;
       storeVar?: number;
@@ -146,126 +277,58 @@ class ZMachine {
       argsMask: number;
     }> = [];
 
-    let idx = 0;
-    let pendingReturnPC: number | undefined;  // Track returnPC that wasn't built into a frame
+    // Build frames with shifted locals
+    for (let i = 0; i < callStackEntries.length; i++) {
+      const entry = callStackEntries[i];
 
-    while (idx < this.callStack.length) {
-      const returnPC = this.callStack[idx];
-      idx++;
+      // Get locals from the NEXT entry (shifted forward by 1)
+      const nextEntry = i + 1 < callStackEntries.length ? callStackEntries[i + 1] : null;
+      const frameLocals = nextEntry ? nextEntry.locals : this.localVariables;
 
-      // Check if we've reached the end - remaining data belongs to current frame
-      if (idx >= this.callStack.length) {
-        // Save this returnPC - it's the current frame's return address
-        pendingReturnPC = returnPC;
-        break;
-      }
-
-      // Frame structure: returnPC, [storeVar], local1..N, localCount, frameMarker
-      // We scan ahead more carefully, checking all possible frame marker positions
-      let frameMarker = 0;
-      let localCount = 0;
-      let storeVar: number | undefined;
-      let foundFrame = false;
-
-      // Try to find frame boundaries by scanning for (localCount, frameMarker) pairs
-      // Frame marker is always 0 or 1, and localCount is typically 0-15
-      // IMPORTANT: We prefer matches with larger gaps (more data) over smaller gaps
-      // This helps avoid false matches where a 0 value looks like a localCount
-      let bestMatch: { localCount: number; frameMarker: number; scanIdx: number } | null = null;
-
-      for (let scanIdx = idx; scanIdx < this.callStack.length - 1 && scanIdx < idx + 20; scanIdx++) {
-        const possibleLocalCount = this.callStack[scanIdx];
-        const possibleFrameMarker = this.callStack[scanIdx + 1];
-
-        // Frame marker must be 0 or 1
-        if (possibleFrameMarker !== 0 && possibleFrameMarker !== 1) {
-          continue;
-        }
-
-        // LocalCount should be reasonable (0-15 for Z-Machine)
-        if (possibleLocalCount < 0 || possibleLocalCount > 15) {
-          continue;
-        }
-
-        // Calculate expected gap
-        // If frameMarker=1, there's a storeVar, so: storeVar + locals = localCount + 1
-        // If frameMarker=0, no storeVar, so: locals = localCount
-        const expectedGap = possibleFrameMarker === 1 ? possibleLocalCount + 1 : possibleLocalCount;
-        const actualGap = scanIdx - idx;
-
-        if (actualGap === expectedGap) {
-          // Found a potential match
-          // Prefer matches with: 1) larger gaps (more data), 2) frameMarker=1 over frameMarker=0
-          const currentGap = expectedGap;
-          const bestGap = bestMatch ? (bestMatch.frameMarker === 1 ? bestMatch.localCount + 1 : bestMatch.localCount) : -1;
-
-          if (bestMatch === null || currentGap > bestGap || (currentGap === bestGap && possibleFrameMarker > bestMatch.frameMarker)) {
-            bestMatch = { localCount: possibleLocalCount, frameMarker: possibleFrameMarker, scanIdx };
-          }
-        }
-      }
-
-      if (bestMatch) {
-        localCount = bestMatch.localCount;
-        frameMarker = bestMatch.frameMarker;
-        foundFrame = true;
-      }
-
-      if (!foundFrame) {
-        // Couldn't find a valid frame boundary
-        // This means remaining data is part of the current frame (being executed)
-        break;
-      }
-
-      // Extract storeVar if present
-      if (frameMarker === 1) {
-        storeVar = this.callStack[idx];
-        idx++;
-      }
-
-      // Extract local variables
-      const locals: number[] = [];
-      for (let i = 0; i < localCount; i++) {
-        if (idx >= this.callStack.length) {
-          console.error(`saveData: Ran out of callStack while reading locals at idx=${idx}`);
-          break;
-        }
-        locals.push(this.callStack[idx]);
-        idx++;
-      }
-
-      // Skip localCount and frameMarker
-      idx += 2;
-
-      // For now, we don't have evaluation stack per frame, so it's empty
-      // In a full implementation, we'd need to track this separately
       frames.push({
-        returnPC,
-        storeVar,
-        locals,
+        returnPC: entry.returnPC,
+        storeVar: entry.storeVar,
+        locals: frameLocals,
         evalStack: [],
-        argsMask: 0, // We don't track which args were supplied currently
-      });
-    }
-
-    // Use the pending returnPC if we found one
-    let currentFrameReturnPC = pc;  // Default to current PC if no return address
-    if (pendingReturnPC !== undefined) {
-      currentFrameReturnPC = pendingReturnPC;
-    }
-
-    // Add current frame with current locals (if any) and the return PC
-    // NOTE: This frame represents where we'll return to, not where we currently are
-    // The current PC goes in IFhd, not in the frame's returnPC
-    if (frames.length > 0 || this.localVariables.length > 0) {
-      frames.push({
-        returnPC: currentFrameReturnPC,
-        storeVar: undefined,  // Current frame hasn't returned yet, so no store var
-        locals: this.localVariables,
-        evalStack: [],  // Empty because user stack is in dummy frame for V1-5
         argsMask: 0,
       });
     }
+
+    // DON'T add the current frame!
+    // The current frame is the one executing SAVE, and according to the Quetzal spec and
+    // how Frotz handles it, the current frame should NOT be in the saved frames list.
+    // The PC in IFhd represents the current execution point, and when we RESTORE, we
+    // set PC from IFhd and continue execution from there. We don't need a frame for it.
+    //
+    // Actually, wait - let me reconsider. Looking at the restore loop (lines 571-592),
+    // it processes frames from frameIdx to frames.length-1, and the LAST frame is treated
+    // as the current frame. So we DO need to include it!
+    //
+    // But the issue is what returnPC to use. Let me check the callStack to see if there's
+    // a returnPC for the current frame stored there...
+    //
+    // Actually, the callStack stores returnPCs for returning FROM child frames TO parent frames.
+    // The TOPMOST callStack entry has the returnPC for returning from the CURRENT frame.
+    // But we already processed all callStack entries and built frames from them!
+    //
+    // Let me check: if we have 3 callStack entries, we build 3 frames from them. Then we
+    // add a 4th frame (current frame) with returnPC=pc. But that's wrong!
+    //
+    // The correct approach: The LAST callStack entry contains the returnPC for the current frame!
+    // So the current frame's returnPC should come from the last callStack entry!
+    //
+    // Let's use the last callStack entry's returnPC as the current frame's returnPC:
+    const currentFrameReturnPC = callStackEntries.length > 0
+      ? callStackEntries[callStackEntries.length - 1].returnPC
+      : pc;
+
+    frames.push({
+      returnPC: currentFrameReturnPC,
+      storeVar: undefined,
+      locals: this.localVariables,
+      evalStack: [],
+      argsMask: 0,
+    });
 
     // Write dummy frame first (if needed for V1-5, V7-8)
     if (dummyFrameEvalStack.length > 0) {
@@ -352,9 +415,12 @@ class ZMachine {
     ifhdData.push(this.header.checksum & 0xFF);
 
     // 3-byte program counter (big-endian, only use lower 24 bits)
-    ifhdData.push((pc >> 16) & 0xFF);  // highest byte
-    ifhdData.push((pc >> 8) & 0xFF);   // middle byte
-    ifhdData.push(pc & 0xFF);          // lowest byte
+    const pcHigh = (pc >> 16) & 0xFF;
+    const pcMid = (pc >> 8) & 0xFF;
+    const pcLow = pc & 0xFF;
+    ifhdData.push(pcHigh);  // highest byte
+    ifhdData.push(pcMid);   // middle byte
+    ifhdData.push(pcLow);   // lowest byte
 
     const ifhdBuffer = Buffer.from(ifhdData);
     const ifhdType = Buffer.from('IFhd', 'ascii'); // 4 bytes
@@ -464,6 +530,7 @@ class ZMachine {
     const savedRelease = ifhdData.readUInt16BE(0);
     const savedSerial = ifhdData.toString('ascii', 2, 8).replace(/\0/g, '');
     const savedChecksum = ifhdData.readUInt16BE(8);
+
     const savedPC = (ifhdData.readUInt8(10) << 16) | (ifhdData.readUInt8(11) << 8) | ifhdData.readUInt8(12);
 
     // Validate against current game file
@@ -662,12 +729,28 @@ class ZMachine {
     }
 
     // After restoring, the PC points to the branch offset bytes of the original SAVE instruction.
-    // According to the Z-Machine spec, after RESTORE succeeds, execution continues as if
-    // SAVE returned 0 (without taking the branch). We need to skip the branch bytes.
-    this._readBranchOffset();
+    // According to the Z-Machine spec (§6.3.3), after RESTORE succeeds:
+    // - In V1-3: SAVE is a branch instruction. After RESTORE, it should branch as if SAVE returned 2
+    //   (not 0 or 1). The value 2 indicates "game was just restored".
+    // - Since 2 is non-zero (true), the branch should be taken if branchOnTrue is true.
+    //
+    // So we need to:
+    // 1. Read the branch offset bytes (advancing PC past them)
+    // 2. Apply the branch as if SAVE returned 2 (non-zero/true)
+    const branchInfo = this._readBranchOffset();
 
     if (this.trace) {
-      console.log(`Restored from save: PC=${this.pc.toString(16)} (after skipping branch), stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
+      console.log(`Restored from save: PC before branch=${savedPC.toString(16)}, after reading branch=${this.pc.toString(16)}`);
+      console.log(`Branch info: offset=${branchInfo.offset}, branchOnTrue=${branchInfo.branchOnTrue}`);
+    }
+
+    // Apply the branch as if SAVE returned 2 (non-zero, i.e., true)
+    // This means: if branchOnTrue is true, do branch (condition is true)
+    //            if branchOnTrue is false, don't branch (condition is true)
+    this._applyBranch(branchInfo.offset, branchInfo.branchOnTrue, true);
+
+    if (this.trace) {
+      console.log(`Restored from save: final PC=${this.pc.toString(16)}, stack=${this.stack.length}, callStack=${this.callStack.length}, frames=${frames.length}`);
     }
 
     return true;
@@ -1049,16 +1132,18 @@ class ZMachine {
     return types;
   }
 
-  _readBranchOffset(): { offset: number; branchOnTrue: boolean } {
+  _readBranchOffset(): { offset: number; branchOnTrue: boolean; branchBytes: number } {
     if (!this.memory) throw new Error("Memory not loaded");
     const firstByte = this._fetchByte();
     const branchOnTrue = (firstByte & 0x80) !== 0;
     const singleByte = (firstByte & 0x40) !== 0;
 
     let offset: number;
+    let branchBytes: number;
     if (singleByte) {
       // 6-bit offset (0-63)
       offset = firstByte & 0x3f;
+      branchBytes = 1;
     } else {
       // 14-bit offset (signed)
       const secondByte = this._fetchByte();
@@ -1068,8 +1153,9 @@ class ZMachine {
         // Convert to proper signed integer: 14-bit negative -> JavaScript negative
         offset = offset - 0x4000;
       }
+      branchBytes = 2;
     }
-    return { offset, branchOnTrue };
+    return { offset, branchOnTrue, branchBytes };
   }
 
   /**

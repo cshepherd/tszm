@@ -7,6 +7,12 @@ export interface ExecCtx {
   // Helpers are bound by the dispatcher for the *current* instruction
   store?: (value: number) => void;
   branch?: (cond: boolean) => void;
+  // Information about the branch instruction (if doesBranch is true)
+  branchInfo?: {
+    offset: number;
+    branchOnTrue: boolean;
+    branchBytes: number; // Number of bytes used for the branch offset (1 or 2)
+  };
 }
 
 export interface InstrDescriptor {
