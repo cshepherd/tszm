@@ -129,11 +129,10 @@ class ZMachine {
     // According to Quetzal spec: "For games which use the user stack (V1-5, V7-8),
     // the first stack frame is a 'dummy' frame with both PC and flags zero.
     // The evaluation stack for this frame holds the contents of the user stack."
-    let dummyFrameEvalStack: number[] = [];
-    if (this.header.version <= 5 || this.header.version >= 7) {
-      // The dummy frame's eval stack holds the current user stack (this.stack)
-      dummyFrameEvalStack = [...this.stack];
-    }
+    // NOTE: In tszm, we don't separately track the user stack.
+    // Frotz seems to expect a minimal eval stack (4 words of 0x0001) in the dummy frame.
+    const needsDummyFrame = this.header.version <= 5 || this.header.version >= 7;
+    const dummyFrameEvalStack: number[] = needsDummyFrame ? [1, 1, 1, 1] : [];
 
     // Parse the callStack to reconstruct frames
     // IMPORTANT: Each callStack entry stores the state TO RESTORE when returning FROM the next frame
@@ -229,34 +228,20 @@ class ZMachine {
       const nextEntry = i + 1 < callStackEntries.length ? callStackEntries[i + 1] : null;
       const frameLocals = nextEntry ? nextEntry.locals : this.localVariables;
 
+      // The last frame is the current frame - it gets the eval stack
+      const isCurrentFrame = (i === callStackEntries.length - 1);
+
       frames.push({
         returnPC: entry.returnPC,
         storeVar: entry.storeVar,
         locals: frameLocals,
-        evalStack: [],
+        evalStack: isCurrentFrame ? [...this.stack] : [],
         argsMask: 0,
       });
     }
 
-    //
-    // The correct approach: The LAST callStack entry contains the returnPC for the current frame!
-    // So the current frame's returnPC should come from the last callStack entry!
-    //
-    // Let's use the last callStack entry's returnPC as the current frame's returnPC:
-    const currentFrameReturnPC = callStackEntries.length > 0
-      ? callStackEntries[callStackEntries.length - 1].returnPC
-      : pc;
-
-    frames.push({
-      returnPC: currentFrameReturnPC,
-      storeVar: undefined,
-      locals: this.localVariables,
-      evalStack: [],
-      argsMask: 0,
-    });
-
     // Write dummy frame first (if needed for V1-5, V7-8)
-    if (dummyFrameEvalStack.length > 0) {
+    if (needsDummyFrame) {
       // Dummy frame: returnPC=0, flags=0 (0 locals, no discard), storeVar=0, argsMask=0
       stackData.push(0, 0, 0); // Return PC (3 bytes) = 0x000000
       stackData.push(0); // Flags byte (pvvvv = 00000)
