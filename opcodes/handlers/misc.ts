@@ -21,7 +21,13 @@ export function h_show_status(vm: any) {
   }
 
   // Get terminal width (default to 80)
-  const termWidth = process.stdout.columns || 80;
+  // Try inputOutputDevice first (for xtermjs), then process.stdout (for Node.js)
+  let termWidth = 80; // Default fallback
+  if (vm.inputOutputDevice?.cols) {
+    termWidth = vm.inputOutputDevice.cols;
+  } else if (typeof process !== 'undefined' && process.stdout?.columns) {
+    termWidth = process.stdout.columns;
+  }
 
   // Read global variables for status line
   // Global 0 (variable 16): Location object number
@@ -84,13 +90,17 @@ export function h_show_status(vm: any) {
   // Update status line on line 1
   // Save cursor, update status line, then restore cursor to preserve current position
 
-  // Directly write to stdout to avoid prompt tracking in ZConsole
-  process.stdout.write("\x1b7");      // Save cursor position
-  process.stdout.write("\x1b[1;1H");  // Move to line 1, column 1
-  process.stdout.write("\x1b[7m");    // Reverse video
-  process.stdout.write(finalStatusLine);
-  process.stdout.write("\x1b[0m");    // Reset attributes
-  process.stdout.write("\x1b8");      // Restore cursor position
+  // Build the complete status line update sequence
+  const statusLineSequence =
+    "\x1b7" +           // Save cursor position
+    "\x1b[1;1H" +       // Move to line 1, column 1
+    "\x1b[7m" +         // Reverse video
+    finalStatusLine +
+    "\x1b[0m" +         // Reset attributes
+    "\x1b8";            // Restore cursor position
+
+  // Use inputOutputDevice to write (works in both Node.js and React/xtermjs)
+  vm.inputOutputDevice.writeString(statusLineSequence);
 }
 
 export function h_verify(

@@ -698,7 +698,13 @@ class ZMachine {
 
     // Initialize scrolling region for Z3 games
     // Get terminal height (default to 24 if not available)
-    const termHeight = process.stdout.rows || 24;
+    // Try inputOutputDevice first (for xtermjs), then process.stdout (for Node.js)
+    let termHeight = 24; // Default fallback
+    if (this.inputOutputDevice?.rows) {
+      termHeight = this.inputOutputDevice.rows;
+    } else if (typeof process !== 'undefined' && process.stdout?.rows) {
+      termHeight = process.stdout.rows;
+    }
     const scrollBottom = termHeight - 1; // Reserve last line for input
 
     if (this.inputOutputDevice && this.header) {
