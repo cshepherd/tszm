@@ -28,7 +28,7 @@ export function h_print_num(vm: any, [n]: number[]) {
   if (vm.inputOutputDevice) {
     vm.inputOutputDevice.writeString(signedNum.toString());
   } else {
-    process.stdout.write(signedNum.toString());
+    console.log(signedNum.toString());
   }
 }
 
