@@ -21,6 +21,7 @@ export class ZConsole implements ZMInputOutputDevice {
   private currentPrompt: string = "";
   private zmcdnSessionId: string = "";
   private lastzmcdnInput: ZMCDNInput | null = null;
+  private inCursorSaveBlock: boolean = false;
 
   // set our protocol for future https update
   private static getHttpModule(url: URL) {
@@ -382,14 +383,23 @@ export class ZConsole implements ZMInputOutputDevice {
     } else {
       process.stdout.write(char);
     }
-    // Track potential prompt characters
-    if (char === "\n") {
-      this.currentPrompt = "";
-    } else {
-      this.currentPrompt += char;
-      // Keep only last 50 chars as potential prompt
-      if (this.currentPrompt.length > 50) {
-        this.currentPrompt = this.currentPrompt.slice(-50);
+    // Track potential prompt characters, but ignore content between cursor save/restore
+    // ESC 7 = save cursor, ESC 8 = restore cursor
+    if (char === "\x1b7") {
+      this.inCursorSaveBlock = true;
+    } else if (char === "\x1b8") {
+      this.inCursorSaveBlock = false;
+      // Don't clear currentPrompt here - content after restore is the actual prompt
+    } else if (!this.inCursorSaveBlock) {
+      // Only track prompt when not in a cursor save block
+      if (char === "\n") {
+        this.currentPrompt = "";
+      } else {
+        this.currentPrompt += char;
+        // Keep only last 50 chars as potential prompt
+        if (this.currentPrompt.length > 50) {
+          this.currentPrompt = this.currentPrompt.slice(-50);
+        }
       }
     }
   }
@@ -400,15 +410,36 @@ export class ZConsole implements ZMInputOutputDevice {
     } else {
       process.stdout.write(str);
     }
-    // Track the last line as potential prompt
-    const lines = str.split("\n");
-    if (lines.length > 1) {
-      this.currentPrompt = lines[lines.length - 1];
-    } else {
-      this.currentPrompt += str;
-      // Keep only last 50 chars as potential prompt
-      if (this.currentPrompt.length > 50) {
-        this.currentPrompt = this.currentPrompt.slice(-50);
+    // Track the last line as potential prompt, but ignore content between cursor save/restore
+    // Process each character to handle escape sequences properly
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+
+      // Check for cursor save (ESC 7) - need to check if next char is '7'
+      if (char === "\x1b" && i + 1 < str.length && str[i + 1] === "7") {
+        this.inCursorSaveBlock = true;
+        i++; // Skip the '7'
+        continue;
+      }
+
+      // Check for cursor restore (ESC 8) - need to check if next char is '8'
+      if (char === "\x1b" && i + 1 < str.length && str[i + 1] === "8") {
+        this.inCursorSaveBlock = false;
+        i++; // Skip the '8'
+        continue;
+      }
+
+      // Only track prompt when not in a cursor save block
+      if (!this.inCursorSaveBlock) {
+        if (char === "\n") {
+          this.currentPrompt = "";
+        } else {
+          this.currentPrompt += char;
+          // Keep only last 50 chars as potential prompt
+          if (this.currentPrompt.length > 50) {
+            this.currentPrompt = this.currentPrompt.slice(-50);
+          }
+        }
       }
     }
   }
