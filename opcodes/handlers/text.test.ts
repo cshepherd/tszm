@@ -190,16 +190,14 @@ describe("Text Handlers", () => {
       expect(writeStringFn).toHaveBeenCalledWith("-32768");
     });
 
-    it("should use process.stdout when no inputOutputDevice", () => {
-      const stdoutSpy = jest
-        .spyOn(process.stdout, "write")
-        .mockImplementation();
+    it("should use console.log when no inputOutputDevice", () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
       const vm = {};
 
       h_print_num(vm, [123]);
-      expect(stdoutSpy).toHaveBeenCalledWith("123");
+      expect(consoleSpy).toHaveBeenCalledWith("123");
 
-      stdoutSpy.mockRestore();
+      consoleSpy.mockRestore();
     });
   });
 
