@@ -31,13 +31,15 @@ npm run build.mjs
 
 09-Oct-2025 - Improving Unit Test coverage, but meanwhile ZMCDN is more complete and caches almost everything. When we don't get everything quite right though, you can `/redraw` and force ZMCDN to invalidate its cache and try again.
 
-14-Oct-2025 - Save and Restore, in Quetzal format. New, but mostly validated already. Already useable in commandline, coming to React next.
+15-Oct-2025 - Save and Restore, in Quetzal format, interchangeable with Frotz, working in CLI and React
+
+16-Oct-2025 - VT100 cursor positioning for complete z3 compatibility, in both CLI and React. Still preparing for z4.
 
 Public zmcdn server is at `https://zmcdn.ballmerpeak.org:3003`
 
 <img width="806" height="520" alt="image" src="https://github.com/user-attachments/assets/309c4904-40f4-4d4e-b65d-d7cacb17d46b" />
 
-We're squashing a couple bugs and upgrading compatibility to .z4 next, but there's still more to come! You need to be able to enjoy interactive fiction during long roadtrips.
+There's still more to come! You need to be able to enjoy interactive fiction during long roadtrips.
 
 ## What's Next
 - Speech Mode: Enter commands as speech and the narrator talks back to you, for interactive fiction during roadtrips. It's a long drive from Florida to Maine, why not play Hitchhiker's Guide to keep you mentally sharp while you drive? Will require cheap Text-to-Speech and Speec-to-Text models, but I'm up for it.
