@@ -39,6 +39,9 @@ async function main() {
   }
 
   try {
+    // Clear screen before starting the game
+    process.stdout.write("\x1b[2J\x1b[H");
+
     await zm.load();
     consoleDevice.setZMachine(zm);
     if (traceEnabled) {
