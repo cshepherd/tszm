@@ -405,11 +405,15 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   async writeString(str: string): Promise<void> {
-    if(this.zmcdnEnabled) {
+    // If string contains VT100 escape sequences, write immediately instead of buffering
+    const hasVT100 = str.includes('\x1b');
+
+    if(this.zmcdnEnabled && !hasVT100) {
       this.ZMCDNText += str;
     } else {
       process.stdout.write(str);
     }
+
     // Track the last line as potential prompt, but ignore content between cursor save/restore
     // Process each character to handle escape sequences properly
     for (let i = 0; i < str.length; i++) {
