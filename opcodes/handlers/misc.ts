@@ -81,7 +81,7 @@ export function h_show_status(vm: any) {
   // Build status line with padding
   // Use termWidth - 1 to avoid wrapping at column 80
   const leftText = " " + locationName;
-  const padding = termWidth - leftText.length - rightText.length - 2; // -2 for spaces on both sides
+  const padding = termWidth - leftText.length - rightText.length - 1;
   const statusLine = leftText + " ".repeat(Math.max(0, padding)) + rightText;
 
   // Truncate if too long, ensure we don't reach the last column to avoid wrap
