@@ -1,4 +1,4 @@
-import { ZMachine } from "tszm/dist/ZMachine";
+import { ZMachine } from "tszm";
 import { ZConsole } from "./ZConsole";
 
 async function main() {

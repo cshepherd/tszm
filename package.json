@@ -24,6 +24,6 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "tszm": "^0.9.0"
+    "tszm": "^0.9.1"
   }
 }
