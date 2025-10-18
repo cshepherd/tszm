@@ -1,5 +1,5 @@
 import { ZConsole } from "./ZConsole";
-import { ZMachine } from "./ZMachine";
+import { ZMachine } from "tszm";
 import * as readline from "node:readline/promises";
 
 // Mock node:readline/promises
