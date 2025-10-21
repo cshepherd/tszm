@@ -96,7 +96,7 @@ export class ZConsole implements ZMInputOutputDevice {
 
       // Enable keypress events on stdin for readChar() to work in TTY mode
       emitKeypressEvents(process.stdin);
-      process.stdin.setRawMode(true);
+      // Don't set raw mode yet - we'll toggle it as needed
     } else {
       // For non-TTY, create a dummy readline (needed for type compatibility)
       this.rl = createInterface({
@@ -328,10 +328,27 @@ export class ZConsole implements ZMInputOutputDevice {
       process.exit(0);
     }
 
-    // For TTY, use keypress events
-    // Note: We don't pause readline here because it prevents keypress events from firing
+    // For TTY, use keypress events directly on stdin
+    // Close readline temporarily to prevent interference
+    if (process.stdin.isTTY) {
+      this.rl.close();
+      // Re-enable keypress events after closing readline
+      emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+    }
+
     return new Promise<string>((resolve) => {
       process.stdin.once("keypress", (str: string | undefined, key: Key | undefined) => {
+        // Recreate readline after getting the character
+        if (process.stdin.isTTY) {
+          this.rl = createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            historySize: 100,
+            prompt: "",
+          });
+        }
         // Handle undefined or missing key object
         if (!key) {
           // If we have a string, use it; otherwise return carriage return
@@ -423,6 +440,11 @@ export class ZConsole implements ZMInputOutputDevice {
       const line = this.inputBuffer.substring(this.inputBufferPosition, lineEnd);
       this.inputBufferPosition = lineEnd + 1; // Move past the newline
       return line;
+    }
+
+    // Disable raw mode for line-based input
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
     }
 
     // Ensure readline is resumed (in case it was paused by readChar)
