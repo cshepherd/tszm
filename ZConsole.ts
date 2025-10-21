@@ -385,6 +385,9 @@ export class ZConsole implements ZMInputOutputDevice {
 
         // Handle special keys
         switch (name) {
+          case "space":
+            resolve(" "); // Space character
+            return;
           case "return":
             resolve("\r"); // ZSCII 13 (carriage return)
             return;
@@ -406,6 +409,9 @@ export class ZConsole implements ZMInputOutputDevice {
             return;
           case "right":
             resolve("\x84"); // ZSCII 132 (cursor right)
+            return;
+          case "tab":
+            resolve("\t"); // Tab character
             return;
           default: {
             throw new Error(`Unhandled key "${name}"`);
