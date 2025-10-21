@@ -1,4 +1,5 @@
 import { createInterface, Interface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { ZMInputOutputDevice } from "tszm";
 import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "tszm";
@@ -22,6 +23,10 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnSessionId: string = "";
   private lastzmcdnInput: ZMCDNInput | null = null;
   private inCursorSaveBlock: boolean = false;
+  private inputBuffer: string = "";
+  private inputBufferPosition: number = 0;
+  private bufferInitialized: boolean = false;
+  private inputBufferInitPromise: Promise<void> | null = null;
 
   // set our protocol for future https update
   private static getHttpModule(url: URL) {
@@ -80,12 +85,64 @@ export class ZConsole implements ZMInputOutputDevice {
       this.zmcdnEnabled = false;
     }
 
-    this.rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      historySize: 100,
-      prompt: "",
+    // Only create readline for TTY mode
+    if (process.stdin.isTTY) {
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: 100,
+        prompt: "",
+      });
+
+      // Enable keypress events on stdin for readChar() to work in TTY mode
+      emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+    } else {
+      // For non-TTY, create a dummy readline (needed for type compatibility)
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: 0,
+        prompt: "",
+      });
+
+      // Immediately pause it so it doesn't consume our input
+      this.rl.pause();
+      process.stdin.pause();
+
+      // Set up input buffer initialization
+      this.initializeInputBuffer();
+    }
+  }
+
+  // For non-TTY input, read all stdin into buffer upfront
+  private async initializeInputBuffer(): Promise<void> {
+    if (this.bufferInitialized || process.stdin.isTTY) {
+      return;
+    }
+
+    if (this.inputBufferInitPromise) {
+      return this.inputBufferInitPromise;
+    }
+
+    this.inputBufferInitPromise = new Promise<void>((resolve) => {
+      const chunks: Buffer[] = [];
+
+      // Resume stdin to start reading
+      process.stdin.resume();
+
+      process.stdin.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      process.stdin.on('end', () => {
+        this.inputBuffer = Buffer.concat(chunks).toString('utf8');
+        this.bufferInitialized = true;
+        resolve();
+      });
     });
+
+    return this.inputBufferInitPromise;
   }
 
   setZMachine(zm: ZMachine): void {
@@ -256,6 +313,22 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async readChar(): Promise<string> {
     await this.processZMCDNText();
+
+    // If stdin is not a TTY (piped input), read from buffer
+    if (!process.stdin.isTTY) {
+      await this.initializeInputBuffer();
+
+      if (this.inputBufferPosition < this.inputBuffer.length) {
+        const char = this.inputBuffer[this.inputBufferPosition];
+        this.inputBufferPosition++;
+        return char;
+      }
+
+      // No more input available, return newline
+      return "\n";
+    }
+
+    // For TTY, use keypress events
     return new Promise<string>((resolve) => {
       process.stdin.once("keypress", ({ shift, name }: Key) => {
         // Handle undefined name
@@ -307,6 +380,30 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async readLine(): Promise<string> {
     await this.processZMCDNText();
+
+    // If stdin is not a TTY (piped input), read from buffer
+    if (!process.stdin.isTTY) {
+      await this.initializeInputBuffer();
+
+      // If we've exhausted the buffer, exit gracefully
+      if (this.inputBufferPosition >= this.inputBuffer.length) {
+        // No more input - exit the program
+        process.exit(0);
+      }
+
+      // Find the next newline in the buffer
+      let lineEnd = this.inputBuffer.indexOf('\n', this.inputBufferPosition);
+      if (lineEnd === -1) {
+        // No newline found, return rest of buffer and then exit next time
+        const line = this.inputBuffer.substring(this.inputBufferPosition);
+        this.inputBufferPosition = this.inputBuffer.length;
+        return line;
+      }
+
+      const line = this.inputBuffer.substring(this.inputBufferPosition, lineEnd);
+      this.inputBufferPosition = lineEnd + 1; // Move past the newline
+      return line;
+    }
 
     // Set the prompt so readline can preserve it during history navigation
     this.rl.setPrompt(this.currentPrompt);
@@ -449,6 +546,10 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   close(): void {
+    // Restore normal mode before closing
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     this.rl.close();
   }
 
