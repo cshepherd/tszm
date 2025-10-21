@@ -324,13 +324,27 @@ export class ZConsole implements ZMInputOutputDevice {
         return char;
       }
 
-      // No more input available, return newline
-      return "\n";
+      // No more input available - exit the program
+      process.exit(0);
     }
 
     // For TTY, use keypress events
+    // Note: We don't pause readline here because it prevents keypress events from firing
     return new Promise<string>((resolve) => {
-      process.stdin.once("keypress", ({ shift, name }: Key) => {
+      process.stdin.once("keypress", (str: string | undefined, key: Key | undefined) => {
+        // Handle undefined or missing key object
+        if (!key) {
+          // If we have a string, use it; otherwise return carriage return
+          if (str) {
+            resolve(str);
+          } else {
+            resolve("\r");
+          }
+          return;
+        }
+
+        const { shift, name } = key;
+
         // Handle undefined name
         if (!name) {
           resolve("\r"); // Return carriage return for undefined keys
@@ -338,11 +352,17 @@ export class ZConsole implements ZMInputOutputDevice {
         }
 
         if (name.length === 1) {
-          if (shift) {
-            resolve(name.toUpperCase());
-            return;
+          // For single character keys, use str if available (it has correct case),
+          // otherwise use name with shift modifier
+          let char: string;
+          if (str && str.length === 1) {
+            char = str;
+          } else if (shift) {
+            char = name.toUpperCase();
+          } else {
+            char = name.toLowerCase();
           }
-          resolve(name.toLowerCase());
+          resolve(char);
           return;
         }
 
@@ -404,6 +424,9 @@ export class ZConsole implements ZMInputOutputDevice {
       this.inputBufferPosition = lineEnd + 1; // Move past the newline
       return line;
     }
+
+    // Ensure readline is resumed (in case it was paused by readChar)
+    this.rl.resume();
 
     // Set the prompt so readline can preserve it during history navigation
     this.rl.setPrompt(this.currentPrompt);
