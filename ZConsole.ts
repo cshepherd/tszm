@@ -1,7 +1,7 @@
 import { createInterface, Interface } from "node:readline/promises";
-import { ZMInputOutputDevice } from "./ZMInputOutputDevice";
+import { ZMInputOutputDevice } from "tszm";
 import { ZMCDNInput } from "./ZMCDNInput";
-import { ZMachine } from "./ZMachine";
+import { ZMachine } from "tszm";
 import * as crypto from "crypto";
 import * as http from "http";
 import * as https from "https";
