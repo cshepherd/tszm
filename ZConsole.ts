@@ -607,5 +607,30 @@ export class ZConsole implements ZMInputOutputDevice {
   get isZmcdnEnabled() { return this.zmcdnEnabled; }
   get zmcdnServerUrl() { return this.zmcdnServer; }
 
+  // Terminal dimensions for word wrapping
+  get rows(): number {
+    // Try environment variable first, then process.stdout, then default
+    const envLines = process.env.LINES;
+    if (envLines) {
+      const parsed = parseInt(envLines, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return process.stdout.rows || 24;
+  }
+
+  get cols(): number {
+    // Try environment variable first, then process.stdout, then default
+    const envCols = process.env.COLUMNS;
+    if (envCols) {
+      const parsed = parseInt(envCols, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return process.stdout.columns || 80;
+  }
+
   private rl: Interface;
 }
