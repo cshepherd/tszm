@@ -1,4 +1,5 @@
 import { createInterface, Interface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { ZMInputOutputDevice } from "tszm";
 import { ZMCDNInput } from "./ZMCDNInput";
 import { ZMachine } from "tszm";
@@ -22,6 +23,10 @@ export class ZConsole implements ZMInputOutputDevice {
   private zmcdnSessionId: string = "";
   private lastzmcdnInput: ZMCDNInput | null = null;
   private inCursorSaveBlock: boolean = false;
+  private inputBuffer: string = "";
+  private inputBufferPosition: number = 0;
+  private bufferInitialized: boolean = false;
+  private inputBufferInitPromise: Promise<void> | null = null;
 
   // set our protocol for future https update
   private static getHttpModule(url: URL) {
@@ -80,12 +85,64 @@ export class ZConsole implements ZMInputOutputDevice {
       this.zmcdnEnabled = false;
     }
 
-    this.rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      historySize: 100,
-      prompt: "",
+    // Only create readline for TTY mode
+    if (process.stdin.isTTY) {
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: 100,
+        prompt: "",
+      });
+
+      // Enable keypress events on stdin for readChar() to work in TTY mode
+      emitKeypressEvents(process.stdin);
+      // Don't set raw mode yet - we'll toggle it as needed
+    } else {
+      // For non-TTY, create a dummy readline (needed for type compatibility)
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: 0,
+        prompt: "",
+      });
+
+      // Immediately pause it so it doesn't consume our input
+      this.rl.pause();
+      process.stdin.pause();
+
+      // Set up input buffer initialization
+      this.initializeInputBuffer();
+    }
+  }
+
+  // For non-TTY input, read all stdin into buffer upfront
+  private async initializeInputBuffer(): Promise<void> {
+    if (this.bufferInitialized || process.stdin.isTTY) {
+      return;
+    }
+
+    if (this.inputBufferInitPromise) {
+      return this.inputBufferInitPromise;
+    }
+
+    this.inputBufferInitPromise = new Promise<void>((resolve) => {
+      const chunks: Buffer[] = [];
+
+      // Resume stdin to start reading
+      process.stdin.resume();
+
+      process.stdin.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      process.stdin.on('end', () => {
+        this.inputBuffer = Buffer.concat(chunks).toString('utf8');
+        this.bufferInitialized = true;
+        resolve();
+      });
     });
+
+    return this.inputBufferInitPromise;
   }
 
   setZMachine(zm: ZMachine): void {
@@ -256,8 +313,55 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async readChar(): Promise<string> {
     await this.processZMCDNText();
+
+    // If stdin is not a TTY (piped input), read from buffer
+    if (!process.stdin.isTTY) {
+      await this.initializeInputBuffer();
+
+      if (this.inputBufferPosition < this.inputBuffer.length) {
+        const char = this.inputBuffer[this.inputBufferPosition];
+        this.inputBufferPosition++;
+        return char;
+      }
+
+      // No more input available - exit the program
+      process.exit(0);
+    }
+
+    // For TTY, use keypress events directly on stdin
+    // Close readline temporarily to prevent interference
+    if (process.stdin.isTTY) {
+      this.rl.close();
+      // Re-enable keypress events after closing readline
+      emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+    }
+
     return new Promise<string>((resolve) => {
-      process.stdin.once("keypress", ({ shift, name }: Key) => {
+      process.stdin.once("keypress", (str: string | undefined, key: Key | undefined) => {
+        // Recreate readline after getting the character
+        if (process.stdin.isTTY) {
+          this.rl = createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            historySize: 100,
+            prompt: "",
+          });
+        }
+        // Handle undefined or missing key object
+        if (!key) {
+          // If we have a string, use it; otherwise return carriage return
+          if (str) {
+            resolve(str);
+          } else {
+            resolve("\r");
+          }
+          return;
+        }
+
+        const { shift, name } = key;
+
         // Handle undefined name
         if (!name) {
           resolve("\r"); // Return carriage return for undefined keys
@@ -265,16 +369,25 @@ export class ZConsole implements ZMInputOutputDevice {
         }
 
         if (name.length === 1) {
-          if (shift) {
-            resolve(name.toUpperCase());
-            return;
+          // For single character keys, use str if available (it has correct case),
+          // otherwise use name with shift modifier
+          let char: string;
+          if (str && str.length === 1) {
+            char = str;
+          } else if (shift) {
+            char = name.toUpperCase();
+          } else {
+            char = name.toLowerCase();
           }
-          resolve(name.toLowerCase());
+          resolve(char);
           return;
         }
 
         // Handle special keys
         switch (name) {
+          case "space":
+            resolve(" "); // Space character
+            return;
           case "return":
             resolve("\r"); // ZSCII 13 (carriage return)
             return;
@@ -297,6 +410,9 @@ export class ZConsole implements ZMInputOutputDevice {
           case "right":
             resolve("\x84"); // ZSCII 132 (cursor right)
             return;
+          case "tab":
+            resolve("\t"); // Tab character
+            return;
           default: {
             throw new Error(`Unhandled key "${name}"`);
           }
@@ -307,6 +423,38 @@ export class ZConsole implements ZMInputOutputDevice {
 
   async readLine(): Promise<string> {
     await this.processZMCDNText();
+
+    // If stdin is not a TTY (piped input), read from buffer
+    if (!process.stdin.isTTY) {
+      await this.initializeInputBuffer();
+
+      // If we've exhausted the buffer, exit gracefully
+      if (this.inputBufferPosition >= this.inputBuffer.length) {
+        // No more input - exit the program
+        process.exit(0);
+      }
+
+      // Find the next newline in the buffer
+      let lineEnd = this.inputBuffer.indexOf('\n', this.inputBufferPosition);
+      if (lineEnd === -1) {
+        // No newline found, return rest of buffer and then exit next time
+        const line = this.inputBuffer.substring(this.inputBufferPosition);
+        this.inputBufferPosition = this.inputBuffer.length;
+        return line;
+      }
+
+      const line = this.inputBuffer.substring(this.inputBufferPosition, lineEnd);
+      this.inputBufferPosition = lineEnd + 1; // Move past the newline
+      return line;
+    }
+
+    // Disable raw mode for line-based input
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+
+    // Ensure readline is resumed (in case it was paused by readChar)
+    this.rl.resume();
 
     // Set the prompt so readline can preserve it during history navigation
     this.rl.setPrompt(this.currentPrompt);
@@ -449,11 +597,40 @@ export class ZConsole implements ZMInputOutputDevice {
   }
 
   close(): void {
+    // Restore normal mode before closing
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     this.rl.close();
   }
 
   get isZmcdnEnabled() { return this.zmcdnEnabled; }
   get zmcdnServerUrl() { return this.zmcdnServer; }
+
+  // Terminal dimensions for word wrapping
+  get rows(): number {
+    // Try environment variable first, then process.stdout, then default
+    const envLines = process.env.LINES;
+    if (envLines) {
+      const parsed = parseInt(envLines, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return process.stdout.rows || 24;
+  }
+
+  get cols(): number {
+    // Try environment variable first, then process.stdout, then default
+    const envCols = process.env.COLUMNS;
+    if (envCols) {
+      const parsed = parseInt(envCols, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return process.stdout.columns || 80;
+  }
 
   private rl: Interface;
 }
